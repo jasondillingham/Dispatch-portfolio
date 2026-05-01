@@ -1,0 +1,239 @@
+{{define "extract-review.html"}}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dispatch · Extract Review · {{.Index | inc1}} of {{.Total}}</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<style>
+  html, body { height: 100%; margin: 0; }
+  body { background: #f4f6fa; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #111827; display: flex; flex-direction: column; }
+
+  .er-header { background: #111827; color: #f9fafb; padding: .75rem 1.25rem; display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+  .er-header h1 { margin: 0; font-size: 1rem; font-weight: 600; }
+  .er-header h1 small { color: #9ca3af; font-weight: 400; margin-left: .5rem; }
+  .er-header nav { margin-left: auto; }
+  .er-header nav a { color: #d1d5db; text-decoration: none; margin-left: 1rem; font-size: .85rem; }
+  .er-header nav a:hover { color: #fff; }
+  .er-counter { background: #1f2937; padding: .25rem .65rem; border-radius: .35rem; font-variant-numeric: tabular-nums; font-size: .85rem; }
+  .er-toggle { font-size: .75rem; color: #d1d5db; }
+  .er-toggle a { color: #9ca3af; text-decoration: underline; }
+  .er-toggle a.active { color: #fff; font-weight: 600; text-decoration: none; }
+  .er-skip-top { background: #f59e0b; color: #111827; padding: .35rem .85rem; border-radius: .35rem; font-size: .85rem; font-weight: 600; text-decoration: none; }
+  .er-skip-top:hover { background: #fbbf24; color: #111827; }
+
+  .er-body { flex: 1; display: grid; grid-template-columns: 1fr 480px; gap: 0; min-height: 0; }
+  @media (max-width: 1100px) { .er-body { grid-template-columns: 1fr 380px; } }
+  @media (max-width: 900px)  { .er-body { grid-template-columns: 1fr; } }
+
+  .er-pdf { background: #1f2937; padding: 0; display: flex; flex-direction: column; min-height: 0; }
+  .er-pdf-bar { background: #111827; color: #d1d5db; padding: .35rem .75rem; font-size: .8rem; display: flex; gap: .5rem; align-items: center; }
+  .er-pdf iframe { flex: 1; width: 100%; border: 0; background: #fff; }
+  .er-pdf-empty { flex: 1; display: flex; align-items: center; justify-content: center; color: #9ca3af; padding: 2rem; text-align: center; }
+
+  .er-side { background: #fff; padding: 1rem 1.25rem; overflow-y: auto; display: flex; flex-direction: column; gap: 1rem; border-left: 1px solid #e5e7eb; }
+  .er-vendor { font-size: 1.1rem; font-weight: 600; color: #111827; }
+  .er-vendor.unknown { color: #9ca3af; }
+  .er-subject { font-size: .9rem; color: #4b5563; line-height: 1.35; }
+  .er-meta { font-size: .8rem; color: #6b7280; }
+  .er-meta a { color: #1e40af; text-decoration: none; }
+
+  .er-prior { background: #fffbeb; border: 1px solid #fde68a; color: #78350f; padding: .5rem .75rem; border-radius: .35rem; font-size: .85rem; }
+  .er-prior strong { text-transform: capitalize; }
+
+  .er-fields { display: flex; flex-direction: column; gap: .5rem; padding: 0; }
+  .er-fields .row { display: grid; grid-template-columns: 110px 1fr; gap: .5rem; align-items: center; }
+  .er-fields label { font-size: .8rem; color: #6b7280; font-weight: 500; }
+  .er-fields input, .er-fields textarea {
+    padding: .35rem .5rem; border: 1px solid #d1d5db; border-radius: .35rem; font-size: .9rem; font-family: inherit;
+  }
+  .er-fields input:focus, .er-fields textarea:focus { outline: 2px solid #1e40af; outline-offset: -1px; border-color: #1e40af; }
+  .er-fields .hint { grid-column: 2; font-size: .7rem; color: #9ca3af; }
+
+.er-actions { display: flex; flex-direction: column; gap: .5rem; padding-top: .5rem; border-top: 1px solid #e5e7eb; margin-top: auto; }
+  .er-row { display: flex; gap: .5rem; flex-wrap: wrap; }
+  .er-btn { flex: 1; min-width: 120px; padding: .65rem .85rem; border-radius: .35rem; cursor: pointer; border: 1px solid; font-size: .9rem; font-weight: 500; }
+  .er-btn-right    { background: #ecfdf5; color: #065f46; border-color: #a7f3d0; }
+  .er-btn-right:hover    { background: #a7f3d0; }
+  .er-btn-wrong    { background: #fef2f2; color: #991b1b; border-color: #fecaca; }
+  .er-btn-wrong:hover    { background: #fecaca; }
+  .er-btn-correct  { background: #1e40af; color: #fff; border-color: #1e40af; }
+  .er-btn-correct:hover  { background: #1e3a8a; }
+  .er-btn-skip     { background: #f3f4f6; color: #4b5563; border-color: #e5e7eb; }
+  .er-btn-skip:hover     { background: #e5e7eb; }
+
+  .er-nav { display: flex; gap: .5rem; justify-content: space-between; font-size: .85rem; color: #6b7280; }
+  .er-nav a { color: #1e40af; text-decoration: none; padding: .35rem .65rem; border-radius: .35rem; }
+  .er-nav a:hover { background: #eff6ff; }
+  .er-nav .disabled { color: #d1d5db; cursor: not-allowed; }
+
+  .er-kbd { background: #e5e7eb; color: #374151; padding: 0 .35rem; border-radius: .25rem; font-family: ui-monospace, monospace; font-size: .75rem; margin-left: .25rem; }
+</style>
+</head>
+<body>
+
+<div class="er-header">
+  <h1>Extract Review <small>· {{.M.Vendor}}</small></h1>
+  <span class="er-counter">{{.Index | inc1}} of {{.Total}}</span>
+  <span class="er-toggle">
+    Showing:
+    <a href="{{.UnverifiedURL}}" class="{{if .UnverifiedOnly}}active{{end}}">unverified ({{.UnverifiedCount}})</a>
+    ·
+    <a href="{{.AllURL}}" class="{{if not .UnverifiedOnly}}active{{end}}">all ({{.TotalExtractions}})</a>
+  </span>
+  <a href="{{.NextURL}}" class="er-skip-top" accesskey="k" title="Skip without recording a verdict (K)">→ Skip <span class="er-kbd">K</span></a>
+  <nav>
+    <a href="/ap">AP</a>
+    <a href="/admin/overview">Overview</a>
+    <a href="/">Admin queue</a>
+  </nav>
+</div>
+
+<div class="er-body">
+
+  <div class="er-pdf">
+    <div class="er-pdf-bar">
+      {{if .FirstPDF}}
+        <span>📄 {{.FirstPDF.Name}}</span>
+        <span style="margin-left:auto;">
+          <a href="{{.M.WebLink}}" target="_blank" style="color:#9ca3af;">↗ Outlook</a>
+        </span>
+      {{else}}
+        <span>(no PDF attached)</span>
+        <span style="margin-left:auto;">
+          <a href="{{.M.WebLink}}" target="_blank" style="color:#9ca3af;">↗ Outlook</a>
+        </span>
+      {{end}}
+    </div>
+    {{if .FirstPDF}}
+      <iframe src="/message/{{.M.ID | rowID}}/attachment/{{.FirstPDF.ID}}" title="{{.FirstPDF.Name}}"></iframe>
+    {{else}}
+      <div class="er-pdf-empty">
+        <div>
+          <div style="font-size:2.5rem;">📭</div>
+          <p>No PDF attached. Read the message body in the right pane or open in Outlook.</p>
+          {{if .BodyText}}<pre style="text-align:left; white-space:pre-wrap; max-height:50vh; overflow:auto; background:#fff; color:#111827; padding:.75rem; border-radius:.35rem; font-size:.8rem;">{{.BodyText}}</pre>{{end}}
+        </div>
+      </div>
+    {{end}}
+  </div>
+
+  <div class="er-side">
+    <div>
+      <div class="er-vendor {{if or (eq .M.Vendor "") (eq .M.Vendor "Unknown")}}unknown{{end}}">
+        {{if .M.Vendor}}{{.M.Vendor}}{{else}}— unknown vendor —{{end}}
+      </div>
+      <div class="er-subject">{{.M.Subject}}</div>
+      <div class="er-meta">
+        From {{if .M.SenderName}}{{.M.SenderName}}{{else}}{{.M.Sender}}{{end}}
+        · {{.M.Received.Format "Jan 2, 3:04 PM"}}
+        {{if .Extraction}}<br>Model: <code>{{.Extraction.Model}}</code> · {{.Extraction.ElapsedMs}}ms{{end}}
+      </div>
+    </div>
+
+    {{if .RecentVerdict}}
+      <div class="er-prior">
+        You marked this <strong>{{.RecentVerdict.Verdict}}</strong> {{relTime .RecentVerdict.CreatedAt}}.
+        Re-verdict to update — the new row appends; the old one stays in the audit log.
+      </div>
+    {{end}}
+
+
+    {{/* The form is the whole right-pane action surface — submit buttons
+         each set a different verdict, all of them ride along with the
+         current field values. Clerk edits a field and hits "Save corrections"
+         to persist the corrected JSON; or just hits "Looks right"/"Wrong" to
+         skip the form entirely. */}}
+    <form method="post" action="/extract-review/{{.M.ID | rowID}}/verdict" id="er-form">
+      <input type="hidden" name="next_index" value="{{if .UnverifiedOnly}}{{.Index}}{{else}}{{.Index | inc1}}{{end}}">
+      <input type="hidden" name="all" value="{{if .UnverifiedOnly}}0{{else}}1{{end}}">
+
+      <div class="er-fields">
+        <div class="row">
+          <label for="er-po">PO #</label>
+          <input type="text" id="er-po" name="po_number" inputmode="numeric" value="{{.FillPONumber}}">
+        </div>
+        <div class="row">
+          <label for="er-inv">Invoice #</label>
+          <input type="text" id="er-inv" name="invoice_number" value="{{.FillInvoiceNumber}}">
+        </div>
+        <div class="row">
+          <label for="er-date">Date</label>
+          <input type="text" id="er-date" name="invoice_date" value="{{.FillInvoiceDate}}">
+        </div>
+        <div class="row">
+          <label for="er-total">Total</label>
+          <input type="text" id="er-total" name="invoice_total" inputmode="decimal" value="{{.FillInvoiceTotal}}">
+        </div>
+        <div class="row" style="align-items:start;">
+          <label for="er-notes">Notes</label>
+          <textarea id="er-notes" name="notes" rows="2" placeholder="optional, only saved with corrections"></textarea>
+        </div>
+        <div class="hint">Edit any field, then Save corrections to record verdict=corrected with the edited values.</div>
+      </div>
+
+      <div class="er-actions">
+        <div class="er-row">
+          <button type="submit" name="verdict" value="right" class="er-btn er-btn-right" accesskey="y">
+            ✓ Looks right <span class="er-kbd">Y</span>
+          </button>
+          <button type="submit" name="verdict" value="wrong" class="er-btn er-btn-wrong" accesskey="n">
+            ✗ Wrong <span class="er-kbd">N</span>
+          </button>
+        </div>
+        <div class="er-row">
+          <button type="submit" name="verdict" value="corrected" class="er-btn er-btn-correct" accesskey="s">
+            💾 Save corrections <span class="er-kbd">S</span>
+          </button>
+          {{/* Skip is a plain link (not a form submit) so it always advances
+               to Index+1 regardless of unverifiedOnly mode — submitting the
+               form with verdict=skip in unverifiedOnly mode would land on the
+               same row since no verdict was recorded. */}}
+          <a href="{{.NextURL}}" class="er-btn er-btn-skip" accesskey="k"
+             style="text-align:center; text-decoration:none;">
+            → Skip <span class="er-kbd">K</span>
+          </a>
+        </div>
+      </div>
+    </form>
+
+    <div class="er-nav">
+      {{if .PrevURL}}<a href="{{.PrevURL}}">← Prev</a>{{else}}<span class="disabled">← Prev</span>{{end}}
+      <a href="{{.M.WebLink}}" target="_blank" style="color:#6b7280;">Open in Outlook ↗</a>
+      <a href="{{.NextURL}}">Skip → Next</a>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // Keyboard shortcuts: Y=right, N=wrong, S=save corrections, K=skip,
+  // ←/→ = nav. Avoid stealing keys when the user is typing in an input.
+  document.addEventListener('keydown', function(e) {
+    if (e.target.matches('input, textarea')) return;
+    var f = document.getElementById('er-form');
+    var click = function(verdict) {
+      var b = f.querySelector('button[value="' + verdict + '"]');
+      if (b) b.click();
+    };
+    switch (e.key.toLowerCase()) {
+      case 'y': click('right');     e.preventDefault(); break;
+      case 'n': click('wrong');     e.preventDefault(); break;
+      case 's': click('corrected'); e.preventDefault(); break;
+      case 'k': window.location = {{.NextURL}}; e.preventDefault(); break;
+      case 'arrowleft':
+        var p = document.querySelector('.er-nav a[href*="index="]:first-of-type');
+        if (p && p.tagName === 'A') p.click();
+        break;
+      case 'arrowright':
+        var n = document.querySelectorAll('.er-nav a[href*="index="]');
+        if (n.length >= 2) n[n.length-1].click();
+        break;
+    }
+  });
+</script>
+
+</body>
+</html>
+{{end}}

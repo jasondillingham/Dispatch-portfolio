@@ -1,0 +1,236 @@
+{{define "overview.html"}}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dispatch · Overview</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<style>
+  body { background: #f4f6fa; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #111827; }
+  .ov-header { background: #111827; color: #f9fafb; padding: 1rem 1.5rem; display: flex; align-items: center; justify-content: space-between; }
+  .ov-header h1 { margin: 0; font-size: 1.15rem; font-weight: 600; }
+  .ov-header h1 small { color: #9ca3af; font-weight: 400; margin-left: .5rem; font-size: .85rem; }
+  .ov-header nav a { color: #d1d5db; text-decoration: none; margin-right: 1rem; font-size: .9rem; }
+  .ov-header nav a:hover { color: #fff; }
+
+  .ov-stage { max-width: 1400px; margin: 1.5rem auto 4rem; padding: 0 1.5rem; }
+  .ov-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+  .ov-stat { background: #fff; border-radius: .5rem; padding: 1rem 1.25rem; box-shadow: 0 1px 3px rgba(0,0,0,.04); }
+  .ov-stat-label { font-size: .75rem; text-transform: uppercase; letter-spacing: .05em; color: #6b7280; font-weight: 600; }
+  .ov-stat-value { font-size: 1.6rem; font-weight: 700; color: #111827; margin-top: .25rem; font-variant-numeric: tabular-nums; }
+  .ov-stat-sub { font-size: .8rem; color: #9ca3af; margin-top: .15rem; }
+
+  .ov-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem; }
+  @media (max-width: 980px) { .ov-grid { grid-template-columns: 1fr; } }
+
+  .ov-card { background: #fff; border-radius: .5rem; padding: 1rem 1.25rem 1.25rem; box-shadow: 0 1px 3px rgba(0,0,0,.04); }
+  .ov-card h2 { font-size: .85rem; text-transform: uppercase; letter-spacing: .04em; color: #6b7280; margin: 0 0 .65rem; font-weight: 600; }
+  .ov-card h2 .ov-card-sub { font-weight: 400; text-transform: none; letter-spacing: 0; color: #9ca3af; margin-left: .35rem; font-size: .8rem; }
+
+  table.ov-table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+  table.ov-table th, table.ov-table td { padding: .35rem .5rem; text-align: left; border-bottom: 1px solid #f3f4f6; }
+  table.ov-table th { color: #9ca3af; font-weight: 500; font-size: .75rem; text-transform: uppercase; letter-spacing: .04em; }
+  table.ov-table td.num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+  table.ov-table tr:last-child td { border-bottom: none; }
+  .ov-empty { color: #9ca3af; font-size: .85rem; padding: .5rem 0; font-style: italic; }
+  .ov-bar { display: inline-block; height: 8px; background: #1e40af; border-radius: 4px; vertical-align: middle; margin-left: .35rem; }
+  .ov-bar.dispute { background: #dc2626; }
+  .ov-bar.blocked { background: #f59e0b; }
+</style>
+</head>
+<body>
+
+<div class="ov-header">
+  <h1>Overview <small>· last {{.WindowDays}} days</small></h1>
+  <nav>
+    <a href="/">Queue</a>
+    <a href="/ap">AP View</a>
+    <a href="/admin">Admin</a>
+  </nav>
+</div>
+
+<div class="ov-stage">
+
+  {{/* Top-line stats: window total, classified rate. The unclassified
+       remainder is the "audit me" pile. */}}
+  <div class="ov-summary">
+    <div class="ov-stat">
+      <div class="ov-stat-label">Total messages</div>
+      <div class="ov-stat-value">{{.Total}}</div>
+      <div class="ov-stat-sub">last {{.WindowDays}} days</div>
+    </div>
+    <div class="ov-stat">
+      <div class="ov-stat-label">Classified</div>
+      <div class="ov-stat-value">{{.WithKind}}</div>
+      <div class="ov-stat-sub">{{.ClassifiedPct}}% of total</div>
+    </div>
+    {{$dispute := 0}}{{range .KindBreakdown}}{{if eq .Label "Dispute"}}{{$dispute = .Count}}{{end}}{{end}}
+    <div class="ov-stat">
+      <div class="ov-stat-label">Disputes</div>
+      <div class="ov-stat-value" style="color:#dc2626;">{{$dispute}}</div>
+      <div class="ov-stat-sub">Kind: Dispute</div>
+    </div>
+    {{$invoices := 0}}{{range .KindBreakdown}}{{if eq .Label "Invoice"}}{{$invoices = .Count}}{{end}}{{end}}
+    <div class="ov-stat">
+      <div class="ov-stat-label">Invoices</div>
+      <div class="ov-stat-value" style="color:#1e40af;">{{$invoices}}</div>
+      <div class="ov-stat-sub">Kind: Invoice</div>
+    </div>
+  </div>
+
+  {{/* DISPUTES — the most actionable signal. Vendors who dispute often
+       are candidates for relationship review; buyers who dispute often
+       may need a process check. */}}
+  <div class="ov-grid">
+    <div class="ov-card">
+      <h2>Vendors with most disputes <span class="ov-card-sub">last {{.WindowDays}} days</span></h2>
+      {{if .TopVendorsDispute}}
+        <table class="ov-table">
+          <thead><tr><th>Vendor</th><th class="num">Disputes</th></tr></thead>
+          <tbody>
+            {{range .TopVendorsDispute}}
+              <tr>
+                <td><a href="/search?q={{urlquery .Label}}" style="color:#1e40af;text-decoration:none;">{{.Label}}</a></td>
+                <td class="num">{{.Count}}<span class="ov-bar dispute" style="width:{{.Count}}px;max-width:80px;"></span></td>
+              </tr>
+            {{end}}
+          </tbody>
+        </table>
+      {{else}}<div class="ov-empty">No disputes in window.</div>{{end}}
+    </div>
+
+    <div class="ov-card">
+      <h2>Buyers with most disputes <span class="ov-card-sub">last {{.WindowDays}} days</span></h2>
+      {{if .TopBuyersDispute}}
+        <table class="ov-table">
+          <thead><tr><th>Buyer</th><th class="num">Disputes</th></tr></thead>
+          <tbody>
+            {{range .TopBuyersDispute}}
+              <tr>
+                <td>{{.Label}}</td>
+                <td class="num">{{.Count}}<span class="ov-bar dispute" style="width:{{.Count}}px;max-width:80px;"></span></td>
+              </tr>
+            {{end}}
+          </tbody>
+        </table>
+      {{else}}<div class="ov-empty">No buyers tagged on disputes in window.</div>{{end}}
+    </div>
+  </div>
+
+  {{/* BLOCKED — different from disputes: these are messages AP put on hold
+       because they need someone else (vendor, buyer, purchasing) to act.
+       High counts suggest a friction point in the workflow. */}}
+  <div class="ov-grid">
+    <div class="ov-card">
+      <h2>Vendors with most blocked items <span class="ov-card-sub">Status: Blocked</span></h2>
+      {{if .TopVendorsBlocked}}
+        <table class="ov-table">
+          <thead><tr><th>Vendor</th><th class="num">Blocked</th></tr></thead>
+          <tbody>
+            {{range .TopVendorsBlocked}}
+              <tr>
+                <td><a href="/search?q={{urlquery .Label}}" style="color:#1e40af;text-decoration:none;">{{.Label}}</a></td>
+                <td class="num">{{.Count}}<span class="ov-bar blocked" style="width:{{.Count}}px;max-width:80px;"></span></td>
+              </tr>
+            {{end}}
+          </tbody>
+        </table>
+      {{else}}<div class="ov-empty">No blocked items in window.</div>{{end}}
+    </div>
+
+    <div class="ov-card">
+      <h2>Buyers with most blocked items <span class="ov-card-sub">Status: Blocked</span></h2>
+      {{if .TopBuyersBlocked}}
+        <table class="ov-table">
+          <thead><tr><th>Buyer</th><th class="num">Blocked</th></tr></thead>
+          <tbody>
+            {{range .TopBuyersBlocked}}
+              <tr>
+                <td>{{.Label}}</td>
+                <td class="num">{{.Count}}<span class="ov-bar blocked" style="width:{{.Count}}px;max-width:80px;"></span></td>
+              </tr>
+            {{end}}
+          </tbody>
+        </table>
+      {{else}}<div class="ov-empty">No blocked items with a buyer tagged.</div>{{end}}
+    </div>
+  </div>
+
+  {{/* CLERK VERDICTS — Phase 1 of the accuracy loop (see ACCURACY-LOOP.md).
+       Vendors whose extractions AP marked Wrong or Corrected most often.
+       Empty until clerks start clicking the verdict buttons; that's
+       expected on day 1. */}}
+  <div class="ov-grid">
+    <div class="ov-card" style="grid-column: 1 / -1;">
+      <h2>Vendors clerks disagree with most <span class="ov-card-sub">last {{.WindowDays}} days</span></h2>
+      {{if .TopVendorsDisagreed}}
+        <table class="ov-table">
+          <thead>
+            <tr>
+              <th>Vendor</th>
+              <th class="num">Wrong</th>
+              <th class="num">Right</th>
+              <th class="num">Total</th>
+              <th class="num">Disagree %</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{range .TopVendorsDisagreed}}
+              <tr>
+                <td><a href="/search?q={{urlquery .Vendor}}" style="color:#1e40af;text-decoration:none;">{{.Vendor}}</a></td>
+                <td class="num" style="color:#991b1b;">{{.Wrong}}</td>
+                <td class="num" style="color:#065f46;">{{.Right}}</td>
+                <td class="num">{{.Total}}</td>
+                <td class="num">{{pct .DisagreeRate}}%</td>
+              </tr>
+            {{end}}
+          </tbody>
+        </table>
+      {{else}}<div class="ov-empty">No clerk verdicts in window yet — buttons live on detail + AP pages.</div>{{end}}
+    </div>
+  </div>
+
+  {{/* VOLUME + KIND breakdown — context for the leaderboards above. A
+       vendor with 5 disputes out of 200 messages is different from a
+       vendor with 5 disputes out of 5 messages. */}}
+  <div class="ov-grid">
+    <div class="ov-card">
+      <h2>Vendors by volume <span class="ov-card-sub">all messages</span></h2>
+      {{if .TopVendorsByVolume}}
+        <table class="ov-table">
+          <thead><tr><th>Vendor</th><th class="num">Messages</th></tr></thead>
+          <tbody>
+            {{range .TopVendorsByVolume}}
+              <tr>
+                <td><a href="/search?q={{urlquery .Label}}" style="color:#1e40af;text-decoration:none;">{{.Label}}</a></td>
+                <td class="num">{{.Count}}<span class="ov-bar" style="width:{{.Count}}px;max-width:80px;"></span></td>
+              </tr>
+            {{end}}
+          </tbody>
+        </table>
+      {{else}}<div class="ov-empty">No vendor messages in window.</div>{{end}}
+    </div>
+
+    <div class="ov-card">
+      <h2>Kind distribution <span class="ov-card-sub">classified messages</span></h2>
+      {{if .KindBreakdown}}
+        <table class="ov-table">
+          <thead><tr><th>Kind</th><th class="num">Count</th></tr></thead>
+          <tbody>
+            {{range .KindBreakdown}}
+              <tr>
+                <td>{{.Label}}</td>
+                <td class="num">{{.Count}}<span class="ov-bar" style="width:{{.Count}}px;max-width:80px;"></span></td>
+              </tr>
+            {{end}}
+          </tbody>
+        </table>
+      {{else}}<div class="ov-empty">No classified messages yet.</div>{{end}}
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
+{{end}}

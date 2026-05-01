@@ -1,0 +1,17 @@
+bin/
+*.log
+*.sqlite
+*.db
+unmatched*.csv
+/reality-check
+/dispatch
+/category-test
+
+# vendor data files — contain real vendor contacts + P21 IDs, keep local only.
+# Regenerated from P21 by the worker's vendor-refresh path.
+data/
+
+# macOS + runtime noise
+.DS_Store
+.claude/
+

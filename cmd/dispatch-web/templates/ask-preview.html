@@ -1,0 +1,49 @@
+{{define "ask-preview.html"}}
+{{/* Ask Buyer / Ask Vendor preview panel.
+
+     PROTOTYPE — does not send email. Renders the templated message with a
+     copy-to-clipboard button so the clerk can paste into Outlook themselves.
+     Once we wire actual sending we'll add a "Send via Graph" button here. */}}
+<div class="ask-preview" id="ask-preview-{{.Audience}}">
+  <div class="ask-preview-header">
+    <strong>Preview · Ask {{.Audience}}</strong>
+    <span class="muted">prototype — not sent · copy &amp; paste into Outlook</span>
+    <button type="button" class="ask-close-btn"
+            onclick="this.closest('.ask-preview').remove();">✕</button>
+  </div>
+
+  {{if .NoEmail}}
+    <div class="ask-no-email">
+      <strong>Can't auto-fill recipient:</strong> {{.NoEmail}}.
+      You can still copy the body below.
+    </div>
+  {{end}}
+
+  <dl class="ask-fields">
+    <dt>To:</dt>
+    <dd>
+      {{if .To}}
+        {{.ToName}} &lt;<span class="ask-to-email">{{.To}}</span>&gt;
+      {{else}}
+        <em class="muted">(unresolved)</em>
+      {{end}}
+    </dd>
+    <dt>Subject:</dt>
+    <dd><span class="ask-subject">{{.Subject}}</span></dd>
+  </dl>
+
+  <textarea class="ask-body" readonly>{{.Body}}</textarea>
+
+  <div class="ask-actions">
+    <button type="button" class="action-btn ask-copy-btn"
+            onclick="(async function(b){
+                const text = b.closest('.ask-preview').querySelector('.ask-body').value;
+                try { await navigator.clipboard.writeText(text); b.textContent = '✓ copied'; setTimeout(()=>b.textContent='Copy body to clipboard', 1500); }
+                catch(e) { if(window.dispatchToast) window.dispatchToast('Copy failed — select the text manually.', 'error'); }
+            })(this)">
+      Copy body to clipboard
+    </button>
+    <span class="muted ask-hint">No email is sent. We'll wire actual send once you've reviewed the templates.</span>
+  </div>
+</div>
+{{end}}

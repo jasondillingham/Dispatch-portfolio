@@ -1,0 +1,12 @@
+# /etc/sudoers.d/dispatch-admin — installs to grant the cms user (running
+# dispatch-web) permission to soft-restart the worker without a password
+# prompt. Scoped tightly: ONE command, ONE service unit; nothing else.
+#
+# Install with:
+#   sudo install -m 0440 deploy/dispatch-admin.sudoers /etc/sudoers.d/dispatch-admin
+#   sudo visudo -c        # validate before reload
+#
+# (The file mode MUST be 0440 — sudoers refuses otherwise.)
+
+cms ALL=(root) NOPASSWD: /bin/systemctl restart dispatch-worker.service
+cms ALL=(root) NOPASSWD: /bin/systemctl status dispatch-worker.service

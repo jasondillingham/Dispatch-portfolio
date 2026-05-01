@@ -1,0 +1,40 @@
+[Unit]
+Description=Dispatch AP worker (Graph poll → vendor/PO resolve → AI extract → recon)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cms
+Group=cms
+WorkingDirectory=/opt/staging/dispatch
+EnvironmentFile=-/opt/staging/dispatch/env
+# Mailbox + concurrency knobs match what we've been running by hand. Tune
+# concurrency lower if Graph rate-limits or the GPU primary lags. The worker
+# itself is loop-mode (-loop-seconds 120) so it keeps draining; systemd's
+# Restart=on-failure brings it back if it actually crashes.
+ExecStart=/opt/staging/dispatch/bin/dispatch-worker \
+  -mailbox ap@example.com \
+  -concurrency 8 \
+  -extract-concurrency 4 \
+  -fallback-concurrency 3 \
+  -limit 2000 \
+  -loop-seconds 120
+
+# Graceful shutdown: SIGTERM lets in-flight extractions finish (each has its
+# own context with deadline). 30s gives the worst-case fallback (gemma4 on GPU,
+# ~30-60s per call) time to land before we escalate to SIGKILL.
+KillSignal=SIGTERM
+TimeoutStopSec=60
+
+# Crash recovery only — we don't want systemd fighting a controlled stop.
+Restart=on-failure
+RestartSec=5
+
+# Worker logs go to journal — view via:
+#   sudo journalctl -u dispatch-worker -f
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

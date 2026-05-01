@@ -1,0 +1,160 @@
+{{define "list.html"}}
+<div class="msg-table-head">
+  <div>Vendor</div>
+  <div>Subject / Sender</div>
+  <div>Doc</div>
+  <div class="text-end">Received</div>
+  <div>Owner</div>
+  <div>Status</div>
+  <div>Actions</div>
+</div>
+<div class="msg-table">
+{{range .Messages}}
+  {{template "row" (dict "M" . "User" $.User)}}
+{{else}}
+  <div class="empty-state">
+    No messages match this filter.
+  </div>
+{{end}}
+</div>
+{{end}}
+
+{{define "row"}}
+<div class="msg-row {{if .M.Internal}}internal{{end}}" id="row-{{.M.ID | rowID}}">
+  <div class="row-body"
+       hx-get="/message/{{.M.ID | rowID}}"
+       hx-target="#detail"
+       hx-swap="innerHTML"
+       style="cursor: pointer;">
+    <div class="vendor-name {{if or (eq .M.Vendor "") (eq .M.Vendor "Unknown")}}vendor-unknown{{end}}">
+      {{if .M.Vendor}}
+        {{.M.Vendor}}{{if .M.Internal}} <span class="muted" style="font-weight:400;">· internal</span>{{end}}
+      {{else if .M.Internal}}
+        (internal reply)
+      {{else}}
+        —
+      {{end}}
+    </div>
+    <div>
+      <div class="subject">
+        {{if .M.HasAttachments}}<span class="attach-clip" title="has attachments">📎</span>{{end}}
+        {{.M.Subject}}
+        {{if gt .M.ConversationSize 1}}<span class="conv-badge" title="{{.M.ConversationSize}} messages in this conversation">+{{minus1 .M.ConversationSize}}</span>{{end}}
+        {{if gt .M.NoteCount 0}}<span class="note-badge" title="{{.M.NoteCount}} clerk note{{if ne .M.NoteCount 1}}s{{end}}">💬</span>{{end}}
+      </div>
+      <div class="sender">{{if .M.SenderName}}{{.M.SenderName}} · {{end}}{{.M.Sender}}</div>
+    </div>
+    <div class="doc-type-cell">
+      {{if .M.Kind}}
+        <span class="pill kind-{{docTypeSlug .M.Kind}}" title="AI-classified">{{docTypeLabel .M.Kind}}</span>
+      {{else}}
+        <span class="doc-empty">—</span>
+      {{end}}
+    </div>
+    <div class="received">
+      {{relTime .M.Received}}
+      {{$age := ageDays .M.Received}}
+      {{if and (ne .M.Status "Done") (ge $age 7)}}
+        <span class="age-pill {{if ge $age 14}}age-stale{{end}}" title="Received {{$age}} day{{if ne $age 1}}s{{end}} ago">{{$age}}d</span>
+      {{end}}
+    </div>
+    <div class="owner {{if not .M.Owner}}owner-empty{{end}}">
+      {{if .M.Owner}}{{.M.Owner}}{{else}}unclaimed{{end}}
+    </div>
+    <div>
+      {{with .M.AIStatus}}
+        <span class="ai-dot ai-{{.}}" title="{{aiTitle .}}">{{aiGlyph .}}</span>
+      {{end}}
+      {{with .M.Pipeline}}
+        <span class="pill pipeline pipeline-{{.}}" title="pipeline: {{.}}">{{.}}</span>
+      {{end}}
+      {{/* Hide Status:New — it's the default for every classified message,
+           so showing the pill everywhere is visual noise. Other statuses
+           (In Progress, Blocked, Done) still render. */}}
+      {{if and .M.Status (ne .M.Status "New")}}
+        <span class="pill status-{{statusSlug .M.Status}}">{{.M.Status}}</span>
+      {{end}}
+      {{range .M.Blockers}}
+        <span class="pill blocker">{{.}}</span>
+      {{end}}
+      {{if .M.PONo}}
+        {{/* Clickable PO pill: filters the list to all messages on this
+             PO. Lets a clerk see "every email tied to PO 1234507" with
+             one click — vendor invoices, internal replies, corrections. */}}
+        <a class="pill po-link" href="/?po={{.M.PONo}}" title="Show all messages on PO {{.M.PONo}}">PO {{.M.PONo}}</a>
+      {{end}}
+      {{if .M.Buyer}}
+        <span class="pill buyer">{{.M.Buyer}}</span>
+      {{end}}
+      {{if .M.PayStatus}}
+        <span class="pill pay-{{.M.PayStatus}}" title="{{if .M.VoucherNo}}Voucher #{{.M.VoucherNo}}{{else}}No voucher in P21 yet{{end}}">
+          {{if eq .M.PayStatus "paid"}}✓ paid{{else if eq .M.PayStatus "posted"}}▣ posted{{else}}○ unposted{{end}}
+        </span>
+      {{end}}
+    </div>
+  </div>
+  <div class="actions">
+    {{if and .M.Internal (eq .M.Vendor "")}}
+      <a href="{{.M.WebLink}}" target="_blank" class="action-link" title="Open in Outlook">↗</a>
+    {{else}}
+      {{if mineIfOwner .M .User}}
+        <button class="action-btn release"
+                data-optimistic="release"
+                hx-post="/message/{{.M.ID | rowID}}/claim"
+                hx-target="#row-{{.M.ID | rowID}}"
+                hx-swap="outerHTML"
+                title="Release">↻</button>
+      {{else if not .M.Owner}}
+        <button class="action-btn claim"
+                data-optimistic="claim"
+                hx-post="/message/{{.M.ID | rowID}}/claim"
+                hx-target="#row-{{.M.ID | rowID}}"
+                hx-swap="outerHTML"
+                title="Claim">✓</button>
+      {{end}}
+
+      <details class="action-menu">
+        <summary class="action-btn">Status</summary>
+        <div class="menu-box">
+          {{range statusOptions}}
+            <button class="menu-item"
+                    data-optimistic="status:{{.}}"
+                    hx-post="/message/{{$.M.ID | rowID}}/status"
+                    hx-vals='{"status":"{{.}}"}'
+                    hx-target="#row-{{$.M.ID | rowID}}"
+                    hx-swap="outerHTML">{{.}}</button>
+          {{end}}
+        </div>
+      </details>
+
+      <details class="action-menu">
+        <summary class="action-btn">Blocker</summary>
+        <div class="menu-box">
+          {{range blockerOptions}}
+            <button class="menu-item {{if $.M.HasBlocker .}}on{{end}}"
+                    hx-post="/message/{{$.M.ID | rowID}}/blocker/{{.}}"
+                    hx-target="#row-{{$.M.ID | rowID}}"
+                    hx-swap="outerHTML">{{.}}</button>
+          {{end}}
+        </div>
+      </details>
+
+      {{if .M.HiddenByDefault}}
+        {{/* AI tagged this as Marketing/Webinar/Newsletter/Payment so it's
+             out of the main queue. If a clerk catches a false positive
+             (Sample-Electric tagged Marketing, real bill from Utility-Vendor), one
+             click strips the Kind: tag and returns the row to the queue. */}}
+        <button class="action-btn reclassify"
+                hx-post="/message/{{.M.ID | rowID}}/clear-kind"
+                hx-target="#row-{{.M.ID | rowID}}"
+                hx-swap="outerHTML"
+                title="Reclassify — strip the AI's Kind: tag and return to queue">
+          ↺ Not {{.M.Kind}}
+        </button>
+      {{end}}
+
+      <a href="{{.M.WebLink}}" target="_blank" class="action-link" title="Open in Outlook">↗</a>
+    {{end}}
+  </div>
+</div>
+{{end}}

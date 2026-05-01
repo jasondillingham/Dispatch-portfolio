@@ -1,0 +1,22 @@
+[Unit]
+Description=Dispatch AP web UI
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cms
+Group=cms
+WorkingDirectory=/opt/staging/dispatch
+# Set DISPATCH_PASSWORD to enable the HTTP Basic gate. Leave unset for local dev.
+# Staging should always have it set.
+EnvironmentFile=-/opt/staging/dispatch/env
+ExecStart=/opt/staging/dispatch/bin/dispatch-web -addr :8085
+Restart=always
+RestartSec=3
+# Shared configs live one directory up so the same mssql_config.json + msgraph_config.json
+# served the worker + web without copy.
+# Adjust if you store them elsewhere on staging.
+
+[Install]
+WantedBy=multi-user.target

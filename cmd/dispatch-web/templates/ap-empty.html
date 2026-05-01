@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dispatch · {{.UserName}}</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<style>
+{{template "page-styles" .}}
+  body.ap-body { background: #f4f6fa; font-size: 18px; }
+  .ap-header { background: #fff; border-bottom: 1px solid #e5e7eb; padding: 1rem 1.5rem; display: flex; align-items: center; gap: 1.25rem; position: sticky; top: 0; z-index: 50; }
+  .ap-header h1 { margin: 0; font-size: 1.15rem; font-weight: 600; color: #111827; }
+  .ap-header h1 small { color: #6b7280; font-weight: 400; margin-left: .35rem; }
+  .ap-tabs { display: flex; gap: .25rem; margin-left: auto; }
+  .ap-tab { background: transparent; border: 1px solid transparent; color: #374151; padding: .5rem 1rem; border-radius: .45rem; font-size: .95rem; cursor: pointer; text-decoration: none; }
+  .ap-tab:hover { background: #f3f4f6; color: #111827; }
+  .ap-tab.active { background: #1e40af; color: #fff; }
+  .ap-tab .ap-tab-count { display: inline-block; margin-left: .35rem; padding: 0 .45rem; background: rgba(255,255,255,.18); color: inherit; border-radius: 999px; font-size: .8rem; font-variant-numeric: tabular-nums; }
+  .ap-tab:not(.active) .ap-tab-count { background: #e5e7eb; color: #374151; }
+
+  .ap-empty { max-width: 540px; margin: 6rem auto; background: #fff; border-radius: .8rem; padding: 3rem 2rem; box-shadow: 0 4px 12px rgba(0,0,0,.06); text-align: center; }
+  .ap-empty-emoji { font-size: 3rem; line-height: 1; margin-bottom: 1rem; }
+  .ap-empty-title { font-size: 1.5rem; font-weight: 600; color: #111827; margin-bottom: .5rem; }
+  .ap-empty-sub { color: #6b7280; margin-bottom: 2rem; line-height: 1.5; }
+  .ap-empty-actions { display: flex; gap: .75rem; justify-content: center; flex-wrap: wrap; }
+  .ap-empty-btn { padding: .65rem 1.25rem; border-radius: .45rem; font-size: 1rem; text-decoration: none; }
+  .ap-empty-btn-primary { background: #111827; color: #fff; }
+  .ap-empty-btn-primary:hover { background: #1f2937; color: #fff; }
+  .ap-empty-btn-secondary { background: #fff; color: #111827; border: 1px solid #d1d5db; }
+  .ap-empty-btn-secondary:hover { background: #f3f4f6; }
+</style>
+</head>
+<body class="ap-body">
+
+<div class="ap-header">
+  <h1>Hi {{.UserName}} <small>· you're in AP mode</small></h1>
+  <nav class="ap-tabs">
+    <a class="ap-tab {{if eq (printf "%s" .Filter) "unassigned"}}active{{end}}" href="/ap?filter=unassigned&index=0">Unassigned <span class="ap-tab-count">{{.Counts.Unassigned}}</span></a>
+    <a class="ap-tab {{if eq (printf "%s" .Filter) "todo"}}active{{end}}" href="/ap?filter=todo&index=0">To do <span class="ap-tab-count">{{.Counts.Todo}}</span></a>
+    <a class="ap-tab {{if eq (printf "%s" .Filter) "hold"}}active{{end}}" href="/ap?filter=hold&index=0">Waiting <span class="ap-tab-count">{{.Counts.Hold}}</span></a>
+    <a class="ap-tab {{if eq (printf "%s" .Filter) "done"}}active{{end}}" href="/ap?filter=done&index=0">Done today <span class="ap-tab-count">{{.Counts.Done}}</span></a>
+  </nav>
+</div>
+
+<div class="ap-empty">
+  {{if eq (printf "%s" .Filter) "unassigned"}}
+    <div class="ap-empty-emoji">🪺</div>
+    <div class="ap-empty-title">Nothing waiting to be picked up</div>
+    <div class="ap-empty-sub">
+      Every incoming invoice has an owner.
+      {{if gt .Counts.Todo 0}}You have <strong>{{.Counts.Todo}}</strong> on your plate.{{end}}
+    </div>
+    <div class="ap-empty-actions">
+      {{if gt .Counts.Todo 0}}<a href="/ap?filter=todo&index=0" class="ap-empty-btn ap-empty-btn-primary">Your work ({{.Counts.Todo}})</a>{{end}}
+      {{if gt .Counts.Hold 0}}<a href="/ap?filter=hold&index=0" class="ap-empty-btn ap-empty-btn-secondary">See waiting ({{.Counts.Hold}})</a>{{end}}
+    </div>
+  {{else if eq (printf "%s" .Filter) "todo"}}
+    <div class="ap-empty-emoji">🎯</div>
+    <div class="ap-empty-title">Nothing assigned to you right now</div>
+    <div class="ap-empty-sub">
+      You're caught up.
+      {{if gt .Counts.Unassigned 0}}There {{if eq .Counts.Unassigned 1}}is <strong>1</strong> invoice{{else}}are <strong>{{.Counts.Unassigned}}</strong> invoices{{end}} unassigned — pick one up?{{end}}
+      {{if gt .Counts.Hold 0}}You have <strong>{{.Counts.Hold}}</strong> waiting on someone.{{end}}
+    </div>
+    <div class="ap-empty-actions">
+      {{if gt .Counts.Unassigned 0}}<a href="/ap?filter=unassigned&index=0" class="ap-empty-btn ap-empty-btn-primary">Unassigned ({{.Counts.Unassigned}})</a>{{end}}
+      {{if gt .Counts.Hold 0}}<a href="/ap?filter=hold&index=0" class="ap-empty-btn ap-empty-btn-secondary">See waiting ({{.Counts.Hold}})</a>{{end}}
+      {{if gt .Counts.Done 0}}<a href="/ap?filter=done&index=0" class="ap-empty-btn ap-empty-btn-secondary">Done today ({{.Counts.Done}})</a>{{end}}
+    </div>
+  {{else if eq (printf "%s" .Filter) "hold"}}
+    <div class="ap-empty-emoji">✓</div>
+    <div class="ap-empty-title">Nothing held up</div>
+    <div class="ap-empty-sub">No invoices are waiting on a buyer or vendor right now.</div>
+    <div class="ap-empty-actions">
+      <a href="/ap?filter=todo&index=0" class="ap-empty-btn ap-empty-btn-primary">Back to To do</a>
+    </div>
+  {{else}}
+    <div class="ap-empty-emoji">📭</div>
+    <div class="ap-empty-title">Nothing finished today yet</div>
+    <div class="ap-empty-sub">As you work through invoices today, they'll show here.</div>
+    <div class="ap-empty-actions">
+      <a href="/ap?filter=todo&index=0" class="ap-empty-btn ap-empty-btn-primary">Back to To do</a>
+    </div>
+  {{end}}
+</div>
+
+</body>
+</html>

@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dispatch — Queue cleared</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<style>
+{{template "page-styles" .}}
+
+  body.review-done-body { background: #f6f7f9; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+  .done-card { max-width: 540px; background: #fff; border-radius: .8rem; padding: 2.5rem; box-shadow: 0 4px 12px rgba(0,0,0,.06); text-align: center; }
+  .done-emoji { font-size: 3rem; line-height: 1; margin-bottom: 1rem; }
+  .done-title { font-size: 1.5rem; font-weight: 600; color: #111827; margin-bottom: .5rem; }
+  .done-sub { color: #6b7280; margin-bottom: 1.5rem; }
+  .done-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: .75rem; margin-bottom: 1.75rem; padding: 1rem; background: #f9fafb; border-radius: .5rem; }
+  .done-stat-num { font-size: 1.4rem; font-weight: 600; color: #111827; font-variant-numeric: tabular-nums; }
+  .done-stat-label { font-size: .75rem; text-transform: uppercase; letter-spacing: .05em; color: #6b7280; margin-top: .15rem; }
+  .done-actions { display: flex; gap: .75rem; justify-content: center; }
+  .done-btn { padding: .55rem 1.25rem; border-radius: .4rem; font-size: .9rem; text-decoration: none; cursor: pointer; transition: background .1s; }
+  .done-btn-primary { background: #111827; color: #fff; border: 1px solid #111827; }
+  .done-btn-primary:hover { background: #1f2937; color: #fff; }
+  .done-btn-secondary { background: #fff; color: #111827; border: 1px solid #d1d5db; }
+  .done-btn-secondary:hover { background: #f3f4f6; }
+</style>
+</head>
+<body class="review-done-body">
+
+<div class="done-card">
+  <div class="done-emoji">🎯</div>
+  <div class="done-title">Queue cleared</div>
+  <div class="done-sub">All messages in <strong>{{.FilterLabel}}</strong> reviewed.</div>
+
+  <div class="done-stats">
+    <div>
+      <div class="done-stat-num">{{.Total}}</div>
+      <div class="done-stat-label">reviewed</div>
+    </div>
+    <div>
+      <div class="done-stat-num">{{humanDuration .Elapsed}}</div>
+      <div class="done-stat-label">elapsed</div>
+    </div>
+    <div>
+      <div class="done-stat-num">{{avgPerItem .Elapsed .Total}}</div>
+      <div class="done-stat-label">avg / message</div>
+    </div>
+  </div>
+
+  <div class="done-actions">
+    <a href="/?filter={{.Filter}}" class="done-btn done-btn-secondary">Back to list</a>
+    <a href="/?filter=open" class="done-btn done-btn-primary">Review next filter →</a>
+  </div>
+</div>
+
+</body>
+</html>

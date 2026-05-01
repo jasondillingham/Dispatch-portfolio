@@ -1,0 +1,70 @@
+{{/* Verdict capture: clerk feedback on AI extraction quality. Phase 1 of the
+     accuracy loop (see ACCURACY-LOOP.md). Three buttons + an inline
+     correction form. Each click POSTs to /message/{id}/verdict; the response
+     re-renders this same fragment with the latest verdict pinned at the top.
+     Included from detail.html and ap.html — both pass .M and .RecentVerdict. */}}
+{{define "verdict-buttons"}}
+<div class="verdict-buttons" id="verdict-{{.M.ID | rowID}}"
+     style="display:flex; flex-direction:column; gap:.5rem; padding:.85rem 1rem; background:#f9fafb; border-top:1px solid #e5e7eb;">
+  <div class="section-label" style="font-size:.75rem; text-transform:uppercase; letter-spacing:.04em; color:#6b7280; font-weight:600;">
+    Was the extraction right?
+  </div>
+  {{if .RecentVerdict}}
+    <div class="muted" style="font-size:.85rem;">
+      You marked this <strong>{{.RecentVerdict.Verdict}}</strong> {{relTime .RecentVerdict.CreatedAt}}.
+      Click again to update.
+    </div>
+  {{end}}
+  <div style="display:flex; gap:.5rem; flex-wrap:wrap;">
+    <button type="button" class="action-btn verdict-btn verdict-right"
+            hx-post="/message/{{.M.ID | rowID}}/verdict"
+            hx-vals='{"verdict":"right"}'
+            hx-target="#verdict-{{.M.ID | rowID}}"
+            hx-swap="outerHTML">
+      ✓ Looks right
+    </button>
+    <button type="button" class="action-btn verdict-btn verdict-wrong"
+            hx-post="/message/{{.M.ID | rowID}}/verdict"
+            hx-vals='{"verdict":"wrong"}'
+            hx-target="#verdict-{{.M.ID | rowID}}"
+            hx-swap="outerHTML">
+      ✗ Wrong
+    </button>
+    <button type="button" class="action-btn verdict-btn verdict-correct"
+            onclick="document.getElementById('verdict-correction-{{.M.ID | rowID}}').classList.toggle('vc-hidden');">
+      ✗ Wrong, here's what it should be
+    </button>
+  </div>
+  <form id="verdict-correction-{{.M.ID | rowID}}" class="vc-hidden"
+        hx-post="/message/{{.M.ID | rowID}}/verdict"
+        hx-target="#verdict-{{.M.ID | rowID}}"
+        hx-swap="outerHTML"
+        style="display:flex; flex-direction:column; gap:.4rem; padding:.5rem; background:#fff; border:1px solid #d1d5db; border-radius:.35rem; margin-top:.25rem;">
+    <input type="hidden" name="verdict" value="corrected">
+    <label style="font-size:.8rem;">Correct PO #
+      <input type="text" name="po_number" style="width:100%; padding:.25rem; border:1px solid #d1d5db; border-radius:.25rem;">
+    </label>
+    <label style="font-size:.8rem;">Correct Invoice #
+      <input type="text" name="invoice_number" style="width:100%; padding:.25rem; border:1px solid #d1d5db; border-radius:.25rem;">
+    </label>
+    <label style="font-size:.8rem;">Correct total
+      <input type="text" name="invoice_total" placeholder="e.g. 253.62" style="width:100%; padding:.25rem; border:1px solid #d1d5db; border-radius:.25rem;">
+    </label>
+    <label style="font-size:.8rem;">Notes (optional)
+      <textarea name="notes" rows="2" style="width:100%; padding:.25rem; border:1px solid #d1d5db; border-radius:.25rem;"></textarea>
+    </label>
+    <button type="submit" class="action-btn" style="background:#1e40af;color:#fff;align-self:flex-end;">Save correction</button>
+  </form>
+</div>
+
+<style>
+  .verdict-btn { font-size:.85rem; padding:.4rem .85rem; border-radius:.35rem; cursor:pointer; border:1px solid; }
+  .verdict-right { background:#ecfdf5; color:#065f46; border-color:#a7f3d0; }
+  .verdict-right:hover { background:#a7f3d0; }
+  .verdict-wrong { background:#fef2f2; color:#991b1b; border-color:#fecaca; }
+  .verdict-wrong:hover { background:#fecaca; }
+  .verdict-correct { background:#fffbeb; color:#78350f; border-color:#fde68a; }
+  .verdict-correct:hover { background:#fde68a; }
+  .verdict-buttons .vc-hidden { display:none; }
+</style>
+{{end}}

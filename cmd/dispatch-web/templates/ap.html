@@ -1,0 +1,705 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dispatch · {{.UserName}}</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<script src="https://unpkg.com/htmx.org@1.9.12"></script>
+<style>
+{{/* Pull in the existing component styles (status pills, recon, attachments)
+     so the embedded detail block looks right. AP-mode chrome is layered on
+     top with bigger fonts + simpler chrome. */}}
+{{template "page-styles" .}}
+
+  /* AP MODE — clerk-first surface. Bigger fonts, more whitespace, simpler
+     chrome. Designed for someone who'll spend hours a day in this view. */
+  body.ap-body { background: #f4f6fa; font-size: 18px; }
+
+  .ap-header { background: #fff; border-bottom: 1px solid #e5e7eb; padding: 1rem 1.5rem; display: flex; align-items: center; gap: 1.25rem; position: sticky; top: 0; z-index: 50; }
+  .ap-header h1 { margin: 0; font-size: 1.15rem; font-weight: 600; color: #111827; letter-spacing: -.01em; }
+  .ap-header h1 small { color: #6b7280; font-weight: 400; margin-left: .35rem; }
+  .ap-tabs { display: flex; gap: .25rem; margin-left: auto; }
+  .ap-tab { background: transparent; border: 1px solid transparent; color: #374151; padding: .5rem 1rem; border-radius: .45rem; font-size: .95rem; cursor: pointer; text-decoration: none; }
+  .ap-tab:hover { background: #f3f4f6; color: #111827; }
+  .ap-tab.active { background: #1e40af; color: #fff; }
+  .ap-tab .ap-tab-count { display: inline-block; margin-left: .35rem; padding: 0 .45rem; background: rgba(255,255,255,.18); color: inherit; border-radius: 999px; font-size: .8rem; font-variant-numeric: tabular-nums; }
+  .ap-tab:not(.active) .ap-tab-count { background: #e5e7eb; color: #374151; }
+
+  .ap-position { color: #6b7280; font-size: .9rem; font-variant-numeric: tabular-nums; padding: 0 .5rem; }
+
+  /* View-as: clerks can peek at another clerk's Todo queue read-only.
+     Selector lives next to the position counter; when active, an amber
+     banner makes it obvious the view is somebody else's pile. */
+  .ap-viewas { display: flex; align-items: center; gap: .35rem; font-size: .85rem; color: #6b7280; }
+  .ap-viewas select { padding: .25rem .5rem; border: 1px solid #d1d5db; border-radius: .35rem; font-size: .85rem; background: #fff; color: #111827; }
+  .ap-viewas-banner { background: #fef3c7; color: #78350f; border-bottom: 1px solid #fde68a; padding: .55rem 1.25rem; font-size: .9rem; display: flex; align-items: center; justify-content: space-between; }
+  .ap-viewas-banner a { color: #78350f; text-decoration: underline; font-weight: 500; }
+
+  .ap-stage { max-width: 980px; margin: 1.5rem auto 8rem; padding: 0 1.5rem; }
+
+  /* Side-by-side stage: PDF sticky on the left, info pane scrolls on the
+     right. Used only when there's a PDF attachment; falls back to single
+     column when no PDF or on narrow screens. */
+  .ap-stage-split { max-width: 1600px; margin: 1.25rem auto 8rem; padding: 0 1.25rem; display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 1.25rem; align-items: start; }
+  .ap-split-pdf { position: sticky; top: 5rem; height: calc(100vh - 7.5rem); align-self: start; }
+  .ap-split-pdf .ap-pdf-card { height: 100%; display: flex; flex-direction: column; }
+  .ap-split-pdf .ap-pdf-frame { flex: 1; min-height: 0; height: auto; }
+  .ap-split-info { display: flex; flex-direction: column; gap: 0; }
+  .ap-split-info .ap-card { margin-bottom: 1rem; }
+  /* Dispatch the standalone summary banners + totals so the right pane
+     reads as one continuous flow. */
+  .ap-split-info .ap-summary, .ap-split-info .ap-totals { margin-bottom: 1rem; }
+
+  /* Notes + ask-buttons sections in the right pane. Reuses the existing
+     .notes-* + .ask-* component styles from page-styles. */
+  .ap-actions-row { display: flex; gap: .5rem; flex-wrap: wrap; padding-top: .35rem; }
+  .ap-actions-row .action-btn { font-size: .9rem; padding: .45rem .85rem; }
+
+  @media (max-width: 1180px) {
+    .ap-stage-split { grid-template-columns: minmax(0, 1fr); max-width: 980px; }
+    .ap-split-pdf { position: static; height: auto; }
+    .ap-split-pdf .ap-pdf-frame { height: calc(100vh - 10rem); min-height: 600px; }
+  }
+
+  .ap-card { background: #fff; border-radius: .65rem; padding: 1.25rem 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,.04); margin-bottom: 1rem; }
+  .ap-card h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; color: #6b7280; margin: 0 0 .75rem; font-weight: 600; }
+
+  .ap-headline { display: grid; gap: .25rem; }
+  .ap-vendor { font-size: 1.7rem; font-weight: 600; color: #111827; line-height: 1.2; }
+  .ap-vendor.unknown { color: #9ca3af; font-style: italic; font-weight: 500; }
+  .ap-subject { color: #374151; font-size: 1rem; }
+  .ap-from { color: #6b7280; font-size: .9rem; margin-top: .15rem; }
+  /* Meta row: Kind pill + Received age. Kind sits on the left so the
+     clerk's eye lands on document type before timing — "is this an
+     invoice or a credit memo" matters more than "how old is it." */
+  .ap-meta-row { display: flex; align-items: center; gap: .65rem; margin-top: .5rem; font-size: .9rem; color: #6b7280; }
+
+  /* Key-facts strip: PO #, Invoice # — what AP looks at first when sanity-
+     checking against the PDF on the left. Sits right below the meta row. */
+  .ap-keys { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .65rem; }
+  .ap-key { display: inline-flex; align-items: center; gap: .35rem; padding: .3rem .65rem; border-radius: .4rem; background: #eff6ff; border: 1px solid #bfdbfe; color: #1e3a8a; font-size: .9rem; }
+  .ap-key.ap-key-po { background: #ecfdf5; border-color: #a7f3d0; color: #065f46; font-weight: 600; }
+  .ap-key.ap-key-inv { background: #fef3c7; border-color: #fde68a; color: #78350f; font-weight: 600; }
+  .ap-key-label { font-size: .7rem; text-transform: uppercase; letter-spacing: .04em; opacity: .7; font-weight: 500; }
+  .ap-key-value { font-variant-numeric: tabular-nums; }
+
+  /* Collapsible email-body card. Body is the original mail message — clerks
+     occasionally need to read the vendor's actual note (shipping question,
+     dispute reason). Default-collapsed so it doesn't dominate the right pane. */
+  details.ap-body-card { background: #fff; border-radius: .65rem; padding: 0; margin-bottom: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,.04); }
+  details.ap-body-card > summary { list-style: none; cursor: pointer; padding: .85rem 1.25rem; color: #374151; font-size: .9rem; user-select: none; display: flex; align-items: center; gap: .5rem; }
+  details.ap-body-card > summary::-webkit-details-marker { display: none; }
+  details.ap-body-card > summary::before { content: "▸"; color: #9ca3af; font-size: .75rem; }
+  details.ap-body-card[open] > summary::before { content: "▾"; color: #374151; }
+  details.ap-body-card[open] > summary { border-bottom: 1px solid #e5e7eb; }
+  .ap-body-frame-wrap { padding: .75rem 1.25rem 1rem; }
+  .ap-body-frame-wrap iframe.body-frame { min-height: 300px; max-height: 65vh; }
+  .ap-doc-pill {
+    display: inline-block; padding: .2rem .6rem; border-radius: 999px;
+    font-size: .78rem; font-weight: 600; line-height: 1.4;
+    background: #e0e7ff; color: #3730a3; border: 1px solid #c7d2fe;
+  }
+  .ap-doc-pill.kind-credit, .ap-doc-pill.kind-credit-memo { background: #fef3c7; color: #92400e; border-color: #fde68a; }
+  .ap-doc-pill.kind-statement { background: #f3e8ff; color: #6b21a8; border-color: #e9d5ff; }
+  .ap-doc-pill.kind-payment { background: #dcfce7; color: #166534; border-color: #a7f3d0; }
+  .ap-doc-pill.kind-dispute { background: #fee2e2; color: #991b1b; border-color: #fecaca; }
+  .ap-doc-pill.kind-orderconfirmation, .ap-doc-pill.kind-po { background: #f5f5f4; color: #57534e; border-color: #e7e5e4; font-weight: 500; }
+  .ap-doc-pill.kind-unknown { background: #f3f4f6; color: #6b7280; border-color: #e5e7eb; font-weight: 500; font-style: italic; }
+  .ap-received { color: #6b7280; }
+
+  .ap-summary { padding: 1rem 1.25rem; border-radius: .5rem; font-size: 1.05rem; margin-bottom: 1rem; display: flex; gap: .65rem; align-items: flex-start; }
+  .ap-summary-clean { background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; }
+  .ap-summary-issue { background: #fffbeb; color: #78350f; border: 1px solid #fde68a; }
+  .ap-summary-fee   { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
+  .ap-summary-unknown { background: #f3f4f6; color: #374151; border: 1px solid #e5e7eb; }
+  .ap-summary-icon { font-size: 1.4rem; line-height: 1; flex-shrink: 0; }
+  .ap-summary strong { display: block; margin-bottom: .15rem; }
+
+  /* Big totals card — invoice $ vs PO $ side by side. The thing AP wants
+     to see first: "are these numbers the same?" */
+  .ap-totals { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem; }
+  .ap-total-cell { background: #fff; border: 1px solid #e5e7eb; border-radius: .5rem; padding: 1rem 1.25rem; text-align: center; }
+  .ap-total-label { font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; color: #6b7280; font-weight: 600; }
+  .ap-total-value { font-size: 1.8rem; font-weight: 700; color: #111827; font-variant-numeric: tabular-nums; margin-top: .35rem; }
+  .ap-total-cell.match { border-color: #a7f3d0; background: #ecfdf5; }
+  .ap-total-cell.mismatch { border-color: #fde68a; background: #fffbeb; }
+
+  /* Decision bar: three big buttons fixed to the bottom of the viewport.
+     This is the primary interaction; everything else on the page is
+     supporting context. Keyboard: Enter = Approve, h = Hold, → = Skip. */
+  .ap-decision-bar { position: fixed; bottom: 0; left: 0; right: 0; background: #fff; border-top: 1px solid #d1d5db; box-shadow: 0 -2px 8px rgba(0,0,0,.04); padding: 1rem 1.5rem; display: flex; gap: 1rem; align-items: center; z-index: 100; }
+  .ap-decision-bar .ap-decision-spacer { flex: 1; }
+  .ap-decision-btn { font-size: 1.1rem; font-weight: 600; padding: .75rem 1.5rem; border-radius: .5rem; border: 1px solid transparent; cursor: pointer; min-width: 140px; text-align: center; text-decoration: none; display: inline-block; }
+  .ap-btn-pickup { background: #16a34a; color: #fff; border-color: #15803d; }
+  .ap-btn-pickup:hover { background: #15803d; color: #fff; }
+  .ap-btn-assign { background: #1e40af; color: #fff; border-color: #1e3a8a; }
+  .ap-btn-assign:hover { background: #1e3a8a; color: #fff; }
+  .ap-btn-hold { background: #f59e0b; color: #fff; border-color: #d97706; }
+  .ap-btn-hold:hover { background: #d97706; color: #fff; }
+  .ap-btn-skip { background: #fff; color: #374151; border-color: #d1d5db; }
+  .ap-btn-skip:hover { background: #f3f4f6; color: #374151; }
+  .ap-decision-btn .kbd-hint { font-weight: 400; opacity: .8; font-size: .8rem; margin-left: .35rem; }
+
+  /* Pickers — Hold (5 reasons) and Assign (other AP clerks). Both pop up
+     from the decision bar; only one can be open at a time. */
+  .ap-picker { position: fixed; bottom: 5.25rem; background: #fff; border: 1px solid #d1d5db; border-radius: .5rem; box-shadow: 0 8px 24px rgba(0,0,0,.12); padding: .75rem; z-index: 110; min-width: 280px; display: none; }
+  .ap-picker.open { display: block; }
+  .ap-picker h3 { font-size: .85rem; color: #6b7280; margin: 0 0 .5rem; font-weight: 600; padding: 0 .35rem; }
+  .ap-picker-option { display: block; width: 100%; text-align: left; background: transparent; border: none; padding: .55rem .75rem; border-radius: .35rem; font-size: .95rem; color: #111827; cursor: pointer; }
+  .ap-picker-option:hover { background: #f3f4f6; }
+  .ap-picker-option.kb-active { background: #dbeafe; outline: 2px solid #1e40af; outline-offset: -2px; }
+  .ap-picker-option .ap-picker-detail { display: block; color: #6b7280; font-size: .78rem; margin-top: .15rem; }
+  .ap-picker.ap-hold-picker { right: calc(1.5rem + 280px); }
+  .ap-picker.ap-assign-picker { right: 1.5rem; }
+  .ap-picker-empty { color: #9ca3af; padding: .55rem .75rem; font-size: .85rem; }
+
+  /* Greyed "More" row at top of detail body — collapsed power tools.
+     the AP pilot user can ignore it; older clerks can ignore it; expert clerks
+     can flip it open when they need it. */
+  details.ap-more { background: transparent; border: 1px solid #e5e7eb; border-radius: .45rem; padding: 0; margin-bottom: 1rem; }
+  details.ap-more > summary { list-style: none; padding: .55rem .85rem; cursor: pointer; color: #6b7280; font-size: .85rem; user-select: none; }
+  details.ap-more > summary::-webkit-details-marker { display: none; }
+  details.ap-more > summary::before { content: "▸"; margin-right: .35rem; }
+  details.ap-more[open] > summary::before { content: "▾"; }
+  details.ap-more[open] > summary { border-bottom: 1px solid #e5e7eb; }
+  .ap-more-body { padding: .85rem; display: flex; gap: .5rem; flex-wrap: wrap; }
+  .ap-more-body a { color: #1e40af; font-size: .85rem; text-decoration: none; padding: .35rem .6rem; border: 1px solid #c7d2fe; border-radius: .35rem; }
+  .ap-more-body a:hover { background: #eff6ff; }
+
+  /* PDF preview — fills the viewport so the clerk can read it without
+     fighting two nested scrollbars. Height accounts for the sticky header
+     (~4rem) + decision bar (~5rem) + breathing room. The iframe is tall
+     enough that the browser's PDF viewer can paginate naturally inside. */
+  .ap-pdf-card { padding: 0; overflow: hidden; }
+  .ap-pdf-card h2 { padding: 1rem 1.25rem 0; }
+  .ap-pdf-frame {
+    width: 100%;
+    height: calc(100vh - 10rem);
+    min-height: 720px;
+    border: 0;
+    display: block;
+    background: #525659;
+  }
+  .ap-pdf-toolbar {
+    display: flex; gap: .5rem; align-items: center; justify-content: space-between;
+    padding: .5rem 1rem; border-top: 1px solid #e5e7eb; background: #f9fafb;
+    font-size: .85rem; color: #6b7280;
+  }
+  .ap-pdf-toolbar a {
+    color: #1e40af; text-decoration: none; padding: .25rem .65rem;
+    border: 1px solid #c7d2fe; border-radius: .35rem; font-size: .85rem;
+  }
+  .ap-pdf-toolbar a:hover { background: #eff6ff; }
+</style>
+</head>
+<body class="ap-body">
+
+{{$viewQS := ""}}{{if .ViewAs}}{{$viewQS = printf "&view=%s" .ViewAs}}{{end}}
+<div class="ap-header">
+  <h1>Hi {{.UserName}} <small>· you're in AP mode</small></h1>
+  <nav class="ap-tabs">
+    <a class="ap-tab {{if eq .Filter "unassigned"}}active{{end}}" href="/ap?filter=unassigned&index=0">Unassigned <span class="ap-tab-count">{{.Counts.Unassigned}}</span></a>
+    <a class="ap-tab {{if eq .Filter "todo"}}active{{end}}" href="/ap?filter=todo&index=0{{$viewQS}}">To do <span class="ap-tab-count">{{.Counts.Todo}}</span></a>
+    <a class="ap-tab {{if eq .Filter "hold"}}active{{end}}" href="/ap?filter=hold&index=0">Waiting <span class="ap-tab-count">{{.Counts.Hold}}</span></a>
+    <a class="ap-tab {{if eq .Filter "done"}}active{{end}}" href="/ap?filter=done&index=0">Done today <span class="ap-tab-count">{{.Counts.Done}}</span></a>
+  </nav>
+  {{/* View-as selector — pick another clerk to peek at their Todo queue.
+       Read-only; the decision bar hides while in view-as mode so the clerk
+       can't accidentally act as the person they're viewing. */}}
+  {{if .APUsers}}
+    <form class="ap-viewas" action="/ap" method="get">
+      <input type="hidden" name="filter" value="todo">
+      <input type="hidden" name="index" value="0">
+      <label for="ap-viewas-pick">view:</label>
+      <select id="ap-viewas-pick" name="view" onchange="this.form.submit()">
+        <option value="">my queue</option>
+        {{range .APUsers}}
+          {{if ne (printf "%s" .ID) $.UserID}}
+            <option value="{{.ID}}" {{if eq (printf "%s" .ID) $.ViewAs}}selected{{end}}>{{.Name}}</option>
+          {{end}}
+        {{end}}
+      </select>
+    </form>
+  {{end}}
+  <span class="ap-position">{{add .Index 1}} of {{.Total}}</span>
+</div>
+{{if .ViewAs}}
+  <div class="ap-viewas-banner">
+    <span>👁 Viewing <strong>{{.ViewAsName}}</strong>'s To do (read-only). Pickup / Assign / Hold are disabled.</span>
+    <a href="/ap?filter=todo&index=0">← Return to my queue</a>
+  </div>
+{{end}}
+
+{{/* Two layout modes:
+     - With PDF: split (PDF left + sticky, info right + scrolling)
+     - Without PDF: original single-column stage
+     Mode chosen at the outer container — the inner content blocks are
+     identical apart from where the PDF card lives. */}}
+{{if .FirstPDF}}<div class="ap-stage-split">
+  <div class="ap-split-pdf">
+    <div class="ap-card ap-pdf-card">
+      <h2>The invoice</h2>
+      <iframe class="ap-pdf-frame"
+              src="/message/{{.M.ID | rowID}}/attachment/{{.FirstPDF.ID}}"
+              title="{{.FirstPDF.Name}}"></iframe>
+      <div class="ap-pdf-toolbar">
+        <span>{{.FirstPDF.Name}}</span>
+        <a href="/message/{{.M.ID | rowID}}/attachment/{{.FirstPDF.ID}}" target="_blank" rel="noopener">Open in new tab ↗</a>
+      </div>
+    </div>
+  </div>
+  <div class="ap-split-info">
+{{else}}<div class="ap-stage">{{end}}
+
+  {{/* HEADLINE: vendor + subject + sender. Three-line summary the clerk
+       reads first to know what they're looking at. */}}
+  <div class="ap-card">
+    <div class="ap-headline">
+      <div class="ap-vendor {{if or (eq .M.Vendor "") (eq .M.Vendor "Unknown")}}unknown{{end}}">
+        {{if .M.Vendor}}{{.M.Vendor}}{{else}}Unknown vendor{{end}}
+      </div>
+      <div class="ap-subject">{{.M.Subject}}</div>
+      <div class="ap-from">From {{if .M.SenderName}}{{.M.SenderName}} · {{end}}{{.M.Sender}}</div>
+      <div class="ap-meta-row">
+        <span class="ap-doc-pill kind-{{docTypeSlug .M.Kind}}">{{docTypeLabel .M.Kind}}</span>
+        <span class="ap-received">Received {{relTime .M.Received}}</span>
+      </div>
+      {{/* Key-facts strip: PO + Invoice number when known. The two numbers a
+           clerk most needs to confirm against the PDF on the left. */}}
+      {{if or .M.PONo (and .Extraction .Extraction.Data .Extraction.Data.InvoiceNumber)}}
+        <div class="ap-keys">
+          {{if .M.PONo}}
+            <span class="ap-key ap-key-po">
+              <span class="ap-key-label">PO</span>
+              <span class="ap-key-value">{{.M.PONo}}</span>
+            </span>
+          {{end}}
+          {{if and .Extraction .Extraction.Data .Extraction.Data.InvoiceNumber}}
+            <span class="ap-key ap-key-inv">
+              <span class="ap-key-label">Invoice #</span>
+              <span class="ap-key-value">{{.Extraction.Data.InvoiceNumber}}</span>
+            </span>
+          {{end}}
+        </div>
+      {{end}}
+    </div>
+  </div>
+
+  {{/* Email body — collapsed by default; the PDF on the left is the primary
+       artifact, but sometimes the vendor's email body has the context (shipping
+       question, dispute reason). Reuses /message/{id}/body which serves a
+       sanitized HTML iframe with strict CSP. */}}
+  <details class="ap-body-card">
+    <summary>Email body</summary>
+    <div class="ap-body-frame-wrap">
+      <iframe class="body-frame" sandbox="allow-same-origin allow-popups"
+              src="/message/{{.M.ID | rowID}}/body"
+              loading="lazy" onload="resizeEmailFrame(this)"></iframe>
+    </div>
+  </details>
+
+  {{/* TOTALS: only when we have recon data. The number AP cares about
+       most: invoice $ vs PO $. Side by side, color-coded match/mismatch. */}}
+  {{if .Recon}}
+    {{with .Recon}}
+      <div class="ap-totals">
+        <div class="ap-total-cell {{if .TotalMatch}}match{{else}}mismatch{{end}}">
+          <div class="ap-total-label">Invoice total</div>
+          <div class="ap-total-value">${{money .InvoiceTotal}}</div>
+        </div>
+        <div class="ap-total-cell {{if .TotalMatch}}match{{else}}mismatch{{end}}">
+          <div class="ap-total-label">PO total</div>
+          <div class="ap-total-value">${{money .POTotal}}</div>
+        </div>
+      </div>
+
+      {{/* Plain-English summary banner — same line we already synthesize
+           for the Ask buttons. AP sees the verdict first, line detail
+           if they want it via the Recon section below. */}}
+      {{if and .TotalMatch (not .AnyLineMismatch)}}
+        <div class="ap-summary ap-summary-clean">
+          <span class="ap-summary-icon">✓</span>
+          <span><strong>Looks good</strong>Every line on the invoice matches the PO. Safe to enter.</span>
+        </div>
+      {{else if .FeeOnlyDiscrepancy}}
+        <div class="ap-summary ap-summary-fee">
+          <span class="ap-summary-icon">📦</span>
+          <span><strong>Shipping/tax question</strong>Lines all match. Vendor added {{.FeeLines}} extra charge{{if ne .FeeLines 1}}s{{end}} not on the PO. Confirm with the buyer if we pay it.</span>
+        </div>
+      {{else}}
+        <div class="ap-summary ap-summary-issue">
+          <span class="ap-summary-icon">⚠</span>
+          <span><strong>Doesn't match the PO</strong>{{reconSummary .}}</span>
+        </div>
+      {{end}}
+    {{end}}
+  {{else if .Extraction}}
+    <div class="ap-summary ap-summary-unknown">
+      <span class="ap-summary-icon">○</span>
+      <span><strong>No PO match yet</strong>We extracted the invoice but couldn't find the PO in P21. Open the More menu to enter manually.</span>
+    </div>
+  {{else}}
+    <div class="ap-summary ap-summary-unknown">
+      <span class="ap-summary-icon">⏳</span>
+      <span><strong>Still being processed</strong>The system hasn't finished reading this invoice yet. Skip it and come back in a minute.</span>
+    </div>
+  {{end}}
+
+  {{/* MORE menu — power tools collapsed. Clerks who don't need rotation
+       or manual entry never see them. */}}
+  <details class="ap-more">
+    <summary>More options</summary>
+    <div class="ap-more-body">
+      <a href="{{.M.WebLink}}" target="_blank" rel="noopener">Open in Outlook</a>
+      <a href="/message/{{.M.ID | rowID}}" hx-get="/message/{{.M.ID | rowID}}" hx-target="body" hx-push-url="true">Full detail view</a>
+      {{if .M.HiddenByDefault}}
+        <a href="#" hx-post="/message/{{.M.ID | rowID}}/clear-kind" hx-target="body" hx-swap="outerHTML">Reclassify (it's not {{.M.Kind}})</a>
+      {{end}}
+    </div>
+  </details>
+
+  {{/* RECON LINE DETAIL — only when there's a discrepancy worth showing.
+       Clean recons stay collapsed under "More". Discrepancy = the clerk
+       needs to see which lines differ. */}}
+  {{if and .Recon .Recon.AnyLineMismatch}}
+    {{with .Recon}}
+      <div class="ap-card">
+        <h2>Where they differ</h2>
+        <table class="recon-lines">
+          <thead><tr>
+            <th></th>
+            <th>Item on invoice</th>
+            <th class="num">Qty</th>
+            <th class="num">Unit $</th>
+            <th>Item on PO</th>
+            <th class="num">Qty</th>
+            <th class="num">Unit $</th>
+            <th>Note</th>
+          </tr></thead>
+          <tbody>
+          {{range .Lines}}
+            {{if ne (printf "%s" .Verdict) "match"}}{{if ne (printf "%s" .Verdict) "extended_match"}}
+              <tr class="recon-row recon-{{.Verdict}}">
+                <td>{{verdictIcon .Verdict}}</td>
+                <td>{{if .Invoice}}{{.Invoice.ItemID}}{{else}}—{{end}}</td>
+                <td class="num">{{if .Invoice}}{{.Invoice.Qty}}{{end}}</td>
+                <td class="num">{{if .Invoice}}${{money .Invoice.UnitPrice}}{{end}}</td>
+                <td>{{if .PO}}{{.PO.ItemID}}{{else}}—{{end}}</td>
+                <td class="num">{{if .PO}}{{.PO.QtyOrdered}}{{end}}</td>
+                <td class="num">{{if .PO}}${{money .PO.UnitPrice}}{{end}}</td>
+                <td class="muted">{{.Note}}</td>
+              </tr>
+            {{end}}{{end}}
+          {{end}}
+          </tbody>
+        </table>
+      </div>
+    {{end}}
+  {{end}}
+
+  {{/* PDF PREVIEW — when there IS no PDF the rest of the page lives in a
+       single-column ap-stage and there's nothing to show here. When there
+       IS a PDF, the iframe was hoisted into the split layout above and
+       this slot stays empty. */}}
+
+  {{/* NOTES — append-only clerk log. Same backend as the admin detail
+       page; AP form posts to /ap/note/{id} which 303s back to /ap so the
+       new note appears on next render. */}}
+  <div class="ap-card notes-section">
+    <h2>
+      Notes
+      {{if .Notes}}<span class="muted" style="text-transform:none;letter-spacing:0;font-weight:400;color:#9ca3af;"> · {{len .Notes}} entr{{if eq (len .Notes) 1}}y{{else}}ies{{end}}</span>{{end}}
+    </h2>
+    {{if .Notes}}
+      <ol class="notes-log">
+        {{range .Notes}}
+          <li class="note-entry">
+            <header>
+              <strong>{{.Author}}</strong>
+              <time datetime="{{.CreatedAt.Format "2006-01-02T15:04:05Z"}}" title="{{.CreatedAt.Format "Mon Jan 2, 2006 3:04 PM"}}">
+                {{relTime .CreatedAt}}
+              </time>
+            </header>
+            <p>{{.Body}}</p>
+          </li>
+        {{end}}
+      </ol>
+    {{end}}
+    <form class="notes-form" method="post" action="/ap/note/{{.M.ID | rowID}}">
+      <input type="hidden" name="filter" value="{{.Filter}}">
+      <input type="hidden" name="index" value="{{.Index}}">
+      <textarea name="body" rows="2"
+                placeholder="Add a note (e.g., 'called the vendor rep 4/27, awaiting freight authorization')"></textarea>
+      <button type="submit" class="action-btn note-save">Add note</button>
+    </form>
+  </div>
+
+  {{/* Verdict capture — clerk feedback on extraction quality. Drives the
+       accuracy-loop corpus (see ACCURACY-LOOP.md). apViewData embeds
+       detailData, so .M and .RecentVerdict resolve here. */}}
+  <div class="ap-card" style="padding:0; overflow:hidden;">
+    {{template "verdict-buttons" .}}
+  </div>
+
+  {{/* EMAIL ACTIONS — same /ask/buyer + /ask/vendor preview endpoints the
+       admin detail page uses. Renders into #ask-preview-slot below; the
+       preview includes copy-to-clipboard for the body so the clerk can
+       paste into Outlook. No mail is actually sent (prototype). */}}
+  <div class="ap-card">
+    <h2>Reach out</h2>
+    <div class="ap-actions-row">
+      {{if .M.Buyer}}
+        <button class="action-btn ask-btn"
+                hx-get="/message/{{.M.ID | rowID}}/ask/buyer"
+                hx-target="#ask-preview-slot"
+                hx-swap="innerHTML"
+                title="Draft a question to the PO buyer (preview only — no email sent)">
+          ✉ Email buyer ({{.M.Buyer}})
+        </button>
+      {{end}}
+      {{if .M.Sender}}
+        <button class="action-btn ask-btn"
+                hx-get="/message/{{.M.ID | rowID}}/ask/vendor"
+                hx-target="#ask-preview-slot"
+                hx-swap="innerHTML"
+                title="Draft a question to the vendor (preview only — no email sent)">
+          ✉ Email vendor
+        </button>
+      {{end}}
+    </div>
+    <div id="ask-preview-slot" style="margin-top:.75rem;"></div>
+  </div>
+
+{{if .FirstPDF}}  </div>
+</div>{{else}}</div>{{end}}
+
+{{/* DECISION BAR: four big buttons. Pickup is the primary action ("I'll
+     work this one"); Assign hands it to another AP clerk; Hold parks it
+     with a reason; Skip moves on without changing state.
+     Hidden in view-as mode — clerk is reading someone else's queue, not
+     acting on it. Skip stays available via the keyboard arrows. */}}
+{{if not .ViewAs}}
+<div class="ap-decision-bar">
+  <form method="post" action="/ap/pickup/{{.M.ID | rowID}}" style="margin:0;">
+    <input type="hidden" name="filter" value="{{.Filter}}">
+    <input type="hidden" name="next_index" value="{{.Index}}">
+    <button type="submit" class="ap-decision-btn ap-btn-pickup">
+      📥 Pickup <span class="kbd-hint">P</span>
+    </button>
+  </form>
+  <button type="button" class="ap-decision-btn ap-btn-assign"
+          onclick="apTogglePicker('ap-assign-picker');">
+    👤 Assign <span class="kbd-hint">A</span>
+  </button>
+  <button type="button" class="ap-decision-btn ap-btn-hold"
+          onclick="apTogglePicker('ap-hold-picker');">
+    ⏸ Hold <span class="kbd-hint">H</span>
+  </button>
+  <span class="ap-decision-spacer"></span>
+  <a href="{{.NextURL}}" class="ap-decision-btn ap-btn-skip">
+    Skip → <span class="kbd-hint">→</span>
+  </a>
+</div>
+{{end}}
+
+{{$id := .M.ID | rowID}}{{$f := .Filter}}{{$next := .Index}}
+
+{{/* Pickers and keyboard mutators are hidden in view-as mode for the same
+     reason as the decision bar: read-only peek shouldn't be able to assign
+     or hold someone else's work. */}}
+{{if not .ViewAs}}
+{{/* ASSIGN PICKER — list of OTHER AP clerks pulled live from P21. */}}
+<div class="ap-picker ap-assign-picker" id="ap-assign-picker">
+  <h3>Hand off to:</h3>
+  {{if .AssignTargets}}
+    {{range .AssignTargets}}
+      <form method="post" action="/ap/assign/{{$id}}" style="margin:0;">
+        <input type="hidden" name="filter" value="{{$f}}">
+        <input type="hidden" name="next_index" value="{{$next}}">
+        <input type="hidden" name="to" value="{{.ID}}">
+        <button type="submit" class="ap-picker-option">
+          {{.Name}}
+          <span class="ap-picker-detail">{{.Role}}</span>
+        </button>
+      </form>
+    {{end}}
+  {{else}}
+    <div class="ap-picker-empty">No other AP clerks to assign to.</div>
+  {{end}}
+</div>
+
+{{/* HOLD PICKER — 5 reasons in plain English mapped to Blocker enum. */}}
+<div class="ap-picker ap-hold-picker" id="ap-hold-picker">
+  <h3>Why are you holding this?</h3>
+  {{range $reason, $detail := apHoldOptions}}
+    <form method="post" action="/ap/hold/{{$id}}" style="margin:0;">
+      <input type="hidden" name="filter" value="{{$f}}">
+      <input type="hidden" name="next_index" value="{{$next}}">
+      <input type="hidden" name="reason" value="{{$reason}}">
+      <button type="submit" class="ap-picker-option">
+        {{index $detail 0}}
+        <span class="ap-picker-detail">{{index $detail 1}}</span>
+      </button>
+    </form>
+  {{end}}
+</div>
+{{end}}
+
+<script>
+// resizeEmailFrame fits the email-body iframe in the right pane to its content
+// height. Inlined here because ap.html is a standalone template (doesn't pull
+// the layout.html script block). Same logic / clamps as the admin detail page.
+function resizeEmailFrame(frame) {
+  try {
+    const doc = frame.contentDocument;
+    if (!doc || !doc.body) return;
+    const h = Math.min(1600, Math.max(300, doc.body.scrollHeight + 20));
+    frame.style.height = h + 'px';
+  } catch (e) { /* cross-origin or not ready — leave min-height */ }
+}
+
+// apTogglePicker: open one picker, close any other. Closing-on-click-outside
+// is wired below in the document-level click handler. When opening, highlight
+// the first option so Enter immediately submits the obvious default.
+function apTogglePicker(id) {
+  const target = document.getElementById(id);
+  if (!target) return;
+  const wantOpen = !target.classList.contains('open');
+  document.querySelectorAll('.ap-picker').forEach(p => p.classList.remove('open'));
+  apClearKbActive();
+  if (wantOpen) {
+    target.classList.add('open');
+    apSetKbActive(target, 0);
+  }
+}
+function apCloseAllPickers() {
+  document.querySelectorAll('.ap-picker').forEach(p => p.classList.remove('open'));
+  apClearKbActive();
+}
+
+// Open picker (if any). Single source of truth for keyboard nav.
+function apOpenPicker() {
+  return document.querySelector('.ap-picker.open');
+}
+function apPickerOptions(picker) {
+  return Array.from(picker.querySelectorAll('.ap-picker-option'));
+}
+function apClearKbActive() {
+  document.querySelectorAll('.ap-picker-option.kb-active').forEach(o => o.classList.remove('kb-active'));
+}
+function apSetKbActive(picker, idx) {
+  apClearKbActive();
+  const opts = apPickerOptions(picker);
+  if (opts.length === 0) return;
+  // Wrap-around so ↑ on the first lands on the last, and ↓ on the last
+  // lands on the first.
+  const n = opts.length;
+  const i = ((idx % n) + n) % n;
+  opts[i].classList.add('kb-active');
+  opts[i].scrollIntoView({block: 'nearest'});
+}
+function apMoveKbActive(picker, delta) {
+  const opts = apPickerOptions(picker);
+  if (opts.length === 0) return;
+  let cur = opts.findIndex(o => o.classList.contains('kb-active'));
+  if (cur < 0) cur = 0;
+  apSetKbActive(picker, cur + delta);
+}
+function apSubmitKbActive(picker) {
+  const active = picker.querySelector('.ap-picker-option.kb-active');
+  if (active) {
+    const form = active.closest('form');
+    if (form) form.submit();
+  }
+}
+
+// Keyboard shortcuts.
+//
+// Picker closed:
+//   P / Enter — Pickup (the primary action)
+//   A         — Assign picker
+//   H         — Hold picker
+//   →         — Skip (next)
+//   ←         — Previous
+//
+// Picker open (Assign or Hold):
+//   ↑ / ↓     — Move selection (wraps)
+//   Enter     — Submit highlighted option
+//   Esc       — Close picker
+//
+// Skip when the user is typing in a textarea (manual entry, notes).
+document.addEventListener('keydown', function(e) {
+  const t = e.target;
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+  // Picker-open mode: arrows/Enter operate on the picker, not the queue.
+  const open = apOpenPicker();
+  if (open) {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      apMoveKbActive(open, 1);
+      return;
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      apMoveKbActive(open, -1);
+      return;
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      apSubmitKbActive(open);
+      return;
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      apCloseAllPickers();
+      return;
+    }
+    // Other keys fall through and do nothing while a picker is open.
+    return;
+  }
+
+  // Picker-closed mode: original shortcuts.
+  // P/Enter/A/H all act on the decision-bar buttons — guard against view-as
+  // mode where those buttons aren't rendered. Skip (→) and Prev (←) still
+  // work because they're URL-driven, not button-driven.
+  if (e.key === 'Enter' || e.key === 'p' || e.key === 'P') {
+    const btn = document.querySelector('.ap-btn-pickup');
+    if (!btn) return;
+    e.preventDefault();
+    btn.closest('form').submit();
+  } else if (e.key === 'a' || e.key === 'A') {
+    if (!document.getElementById('ap-assign-picker')) return;
+    e.preventDefault();
+    apTogglePicker('ap-assign-picker');
+  } else if (e.key === 'h' || e.key === 'H') {
+    if (!document.getElementById('ap-hold-picker')) return;
+    e.preventDefault();
+    apTogglePicker('ap-hold-picker');
+  } else if (e.key === 'ArrowRight') {
+    e.preventDefault();
+    window.location.href = "{{.NextURL}}";
+  } else if (e.key === 'ArrowLeft' && "{{.PrevURL}}") {
+    e.preventDefault();
+    window.location.href = "{{.PrevURL}}";
+  } else if (e.key === 'Escape') {
+    apCloseAllPickers();
+  }
+});
+
+// Click outside any picker closes them. Buttons that toggle pickers are
+// excluded so a click on Hold/Assign doesn't immediately close what it
+// just opened.
+document.addEventListener('click', function(e) {
+  const anyOpen = document.querySelector('.ap-picker.open');
+  if (!anyOpen) return;
+  if (anyOpen.contains(e.target)) return;
+  if (e.target.closest('.ap-btn-hold') || e.target.closest('.ap-btn-assign')) return;
+  apCloseAllPickers();
+});
+</script>
+
+</body>
+</html>

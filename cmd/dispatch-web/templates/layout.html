@@ -1,0 +1,943 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dispatch — AP</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<script src="https://unpkg.com/htmx.org@1.9.12"></script>
+<style>
+{{template "page-styles" .}}
+</style>
+</head>
+<body>
+{{define "page-styles"}}
+  html, body { height: 100%; }
+  body { background: #f6f7f9; margin: 0; }
+  .app-header { background: #111827; color: #f9fafb; padding: .75rem 1.25rem; }
+  .app-title { font-weight: 600; letter-spacing: .01em; }
+
+  /* Impersonation chrome. Admin-only "view as AP user" surface. The
+     dropdown sits in the dark header; the banner sits below the worker
+     bar so it's always visible while impersonating. Strong amber so a
+     forgotten impersonation is impossible to miss. */
+  .impersonate-label { font-size: .8rem; color: #d1d5db; opacity: .8; margin-right: .25rem; }
+  .impersonate-select {
+    background: #1f2937; color: #f9fafb; border: 1px solid #374151;
+    padding: .3rem .55rem; border-radius: .35rem; font-size: .8rem;
+    cursor: pointer; max-width: 220px;
+  }
+  .impersonate-select:hover { border-color: #4b5563; }
+  .impersonate-exit-btn {
+    background: #b45309; color: #fff; border: 1px solid #92400e;
+    padding: .3rem .65rem; border-radius: .35rem; font-size: .8rem;
+    font-weight: 500; cursor: pointer;
+  }
+  .impersonate-exit-btn:hover { background: #92400e; }
+  .impersonate-banner {
+    background: #fef3c7; color: #78350f; border-bottom: 2px solid #f59e0b;
+    padding: .5rem 1rem; font-size: .85rem;
+    display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+    position: sticky; top: 56px; z-index: 11;
+  }
+  .impersonate-banner strong { color: #78350f; }
+  .impersonate-banner-exit {
+    background: #fff; color: #78350f; border: 1px solid #f59e0b;
+    padding: .25rem .65rem; border-radius: .3rem; font-size: .78rem;
+    cursor: pointer; font-weight: 500;
+  }
+  .impersonate-banner-exit:hover { background: #fffbeb; }
+
+  /* Clerk notes — append-only annotations on the detail page. Compact
+     timeline + an inline add form. Note badge on list rows is a tiny 💬
+     beside the conversation badge. */
+  .note-badge { display: inline-block; margin-left: .35rem; font-size: .8em; vertical-align: baseline; opacity: .8; }
+  .notes-section .notes-log { list-style: none; padding: 0; margin: .35rem 0; display: flex; flex-direction: column; gap: .35rem; }
+  .note-entry { background: #fefce8; border: 1px solid #fde68a; border-radius: .35rem; padding: .5rem .75rem; }
+  .note-entry header { font-size: .75rem; color: #6b7280; display: flex; justify-content: space-between; gap: .5rem; margin-bottom: .15rem; }
+  .note-entry header strong { color: #78350f; font-weight: 600; font-variant: small-caps; letter-spacing: .03em; }
+  .note-entry p { margin: 0; font-size: .9rem; color: #1f2937; white-space: pre-wrap; word-break: break-word; }
+  .notes-form { display: flex; flex-direction: column; gap: .35rem; margin-top: .5rem; }
+  .notes-form textarea {
+    width: 100%; border: 1px solid #d1d5db; border-radius: .35rem;
+    padding: .5rem .65rem; font-size: .85rem; resize: vertical; font-family: inherit;
+  }
+  .notes-form textarea:focus { outline: 2px solid #93c5fd; outline-offset: -1px; border-color: #3b82f6; }
+  .notes-form .note-save { background: #1e40af; border-color: #1e40af; color: #fff; align-self: flex-end; padding: .35rem .85rem; font-size: .8rem; }
+  .notes-form .note-save:hover { background: #1e3a8a; }
+
+  /* Ask Buyer / Ask Vendor preview panel. PROTOTYPE — copy-to-clipboard
+     only, no email sent. Lives in a slot just below the action row, so the
+     clerk can scan the rendered text + copy without leaving Dispatch. */
+  .action-btn.ask-btn { background: #ecfeff; border-color: #a5f3fc; color: #0e7490; }
+  .action-btn.ask-btn:hover { background: #cffafe; }
+  .ask-preview {
+    background: #f8fafc; border: 1px solid #cbd5e1; border-radius: .45rem;
+    padding: .75rem 1rem; margin-top: .65rem;
+  }
+  .ask-preview-header {
+    display: flex; align-items: center; gap: .5rem;
+    margin-bottom: .5rem; font-size: .85rem; color: #1f2937;
+  }
+  .ask-preview-header strong { color: #0e7490; }
+  .ask-preview-header .muted { font-size: .75rem; }
+  .ask-close-btn {
+    background: transparent; border: 1px solid #cbd5e1; color: #6b7280;
+    padding: .1rem .45rem; border-radius: .3rem; cursor: pointer;
+    font-size: .8rem; margin-left: auto;
+  }
+  .ask-close-btn:hover { background: #fff; color: #111827; }
+  .ask-no-email {
+    background: #fff7ed; color: #9a3412; border: 1px solid #fed7aa;
+    padding: .45rem .65rem; border-radius: .35rem; font-size: .82rem;
+    margin-bottom: .55rem;
+  }
+  .ask-fields { display: grid; grid-template-columns: auto 1fr; gap: .25rem .65rem; margin: 0 0 .55rem; font-size: .85rem; }
+  .ask-fields dt { color: #6b7280; font-weight: 500; }
+  .ask-fields dd { margin: 0; color: #111827; word-break: break-word; }
+  .ask-to-email { font-family: ui-monospace, Menlo, monospace; font-size: .85em; color: #1e40af; }
+  .ask-subject { font-weight: 500; }
+  .ask-body {
+    width: 100%; min-height: 180px; resize: vertical;
+    border: 1px solid #cbd5e1; border-radius: .35rem;
+    padding: .65rem .75rem; font-family: ui-monospace, Menlo, monospace;
+    font-size: .82rem; color: #111827; background: #fff;
+    white-space: pre-wrap;
+  }
+  .ask-actions { display: flex; align-items: center; gap: .75rem; margin-top: .55rem; flex-wrap: wrap; }
+  .ask-copy-btn { background: #0e7490; border-color: #0e7490; color: #fff; padding: .35rem 1rem; font-size: .8rem; }
+  .ask-copy-btn:hover { background: #155e75; }
+  .ask-hint { font-size: .75rem; }
+  .filters { background: #fff; border-bottom: 1px solid #e5e7eb; padding: .5rem 1rem; position: sticky; top: 0; z-index: 10; }
+  .filter-btn { border: 1px solid transparent; background: transparent; color: #374151; padding: .4rem .85rem; border-radius: 999px; font-size: .9rem; cursor: pointer; }
+  .filter-btn:hover { background: #f3f4f6; }
+  .filter-btn.active { background: #111827; color: #fff; }
+  .filter-count { background: rgba(255,255,255,.15); padding: 0 .45rem; border-radius: 999px; margin-left: .35rem; font-size: .75rem; }
+  .filter-btn:not(.active) .filter-count { background: #e5e7eb; color: #374151; }
+
+  /* Queue-total chip — sums extracted invoice $ across the visible filter.
+     Sits at the right of the filter bar so the clerk sees "what am I about
+     to process today" without scrolling the list. */
+  .queue-total-chip {
+    background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0;
+    padding: .3rem .75rem; border-radius: 999px;
+    font-size: .85rem; font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    display: inline-flex; align-items: center; gap: .35rem;
+  }
+  .queue-total-rows { font-weight: 400; opacity: .7; font-size: .78rem; }
+
+  /* Age pill on rows — shown next to the received-time when a row is >7d
+     old AND not Done. Stale (>14d) gets a louder color so the eye lands. */
+  .age-pill {
+    display: inline-block; margin-left: .35rem;
+    background: #fef3c7; color: #92400e; border: 1px solid #fde68a;
+    padding: 0 .35rem; border-radius: 999px;
+    font-size: .68rem; font-weight: 700; line-height: 1.4;
+    font-variant-numeric: tabular-nums;
+  }
+  .age-pill.age-stale { background: #fee2e2; color: #991b1b; border-color: #fecaca; }
+
+  /* split layout: list + resizer + detail pane */
+  :root { --detail-width: 820px; }
+  .app-body { display: flex; align-items: stretch; }
+  .list-pane { flex: 1; min-width: 0; }
+  .resizer { flex: 0 0 0; background: transparent; cursor: col-resize; position: sticky; top: 56px; max-height: calc(100vh - 96px); transition: background .1s, flex-basis .15s; z-index: 15; }
+  .app-body:has(.detail-inner) .resizer { flex: 0 0 6px; }
+  .resizer:hover, .resizer.dragging { background: #3b82f6; }
+  .detail-pane { background: #fff; border-left: 1px solid #e5e7eb; overflow-y: auto; flex: 0 0 0; transition: flex-basis .15s ease; max-height: calc(100vh - 96px); position: sticky; top: 56px; align-self: flex-start; }
+  .detail-pane:has(.detail-inner) { flex: 0 0 var(--detail-width); transition: none; }
+  @media (max-width: 1200px) {
+    :root { --detail-width: 55vw; }
+  }
+  body.resizing { cursor: col-resize; user-select: none; }
+  body.resizing iframe { pointer-events: none; } /* critical: otherwise mouseup is captured by iframe */
+
+  /* list rows */
+  .msg-table { background: #fff; }
+  .msg-row { display: grid; grid-template-columns: 1fr 220px; gap: .5rem; align-items: center; border-bottom: 1px solid #f3f4f6; padding: .75rem 1rem; }
+  .msg-row:hover { background: #fafbfc; }
+  .msg-row.row-active { background: #eff6ff; box-shadow: inset 3px 0 0 #1e40af; }
+  .msg-row.row-active:hover { background: #dbeafe; }
+  .msg-row.internal { opacity: .72; font-style: italic; }
+  .row-body { display: grid; grid-template-columns: 190px minmax(0, 1fr) 130px 90px 85px 230px; gap: 1rem; align-items: center; min-width: 0; }
+  .row-body > div { min-width: 0; } /* let overflow:hidden actually work inside grid cells */
+  .doc-type-cell { font-size: .8rem; }
+  .doc-type-cell .pill { display: inline-block; padding: .15rem .5rem; border-radius: 999px; font-size: .72rem; font-weight: 600; line-height: 1.5; }
+  .doc-type-cell .pill.kind-invoice { background: #e0e7ff; color: #3730a3; border: 1px solid #c7d2fe; }
+  .doc-type-cell .pill.kind-orderconfirmation, .doc-type-cell .pill.kind-po { background: #f5f5f4; color: #57534e; border: 1px solid #e7e5e4; font-weight: 500; }
+  .doc-type-cell .pill.kind-statement { background: #f3e8ff; color: #6b21a8; border: 1px solid #e9d5ff; }
+  .doc-type-cell .pill.kind-payment { background: #dcfce7; color: #166534; border: 1px solid #a7f3d0; }
+  .doc-type-cell .pill.kind-credit, .doc-type-cell .pill.kind-credit-memo { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
+  .doc-type-cell .pill.kind-dispute { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
+  .doc-type-cell .pill.kind-marketing, .doc-type-cell .pill.kind-webinar, .doc-type-cell .pill.kind-newsletter { background: #fef3c7; color: #78350f; border: 1px solid #fcd34d; }
+  .doc-type-cell .pill.kind-other, .doc-type-cell .pill.kind-unknown { background: #f3f4f6; color: #6b7280; border: 1px solid #e5e7eb; font-style: italic; font-weight: 500; }
+  .doc-type-cell .doc-empty { color: #d1d5db; font-size: .8rem; }
+  .msg-table-head { padding: .5rem 1rem; font-size: .7rem; text-transform: uppercase; letter-spacing: .05em; color: #9ca3af; display: grid; grid-template-columns: 190px minmax(0, 1fr) 130px 90px 85px 230px 220px; gap: 1rem; padding-left: 1rem; padding-right: 1rem; }
+  .vendor-name { font-weight: 600; color: #111827; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .vendor-unknown { color: #9ca3af; font-weight: 500; font-style: italic; }
+  .subject { color: #374151; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .attach-clip { margin-right: .3rem; font-size: .85em; opacity: .65; vertical-align: baseline; }
+  .conv-badge { display: inline-block; margin-left: .4rem; padding: .05rem .4rem; border-radius: 999px; background: #e5e7eb; color: #4b5563; font-size: .7rem; font-weight: 600; font-variant-numeric: tabular-nums; vertical-align: middle; }
+
+  /* Related messages card on detail */
+  .related-list { display: flex; flex-direction: column; gap: .3rem; }
+  .related-row { display: grid; grid-template-columns: 75px 180px 1fr; gap: .6rem; align-items: baseline; padding: .4rem .55rem; border-radius: .35rem; background: #f9fafb; color: #111827; text-decoration: none; font-size: .85rem; }
+  .related-row:hover { background: #eff6ff; }
+  .related-when { color: #6b7280; font-size: .8rem; }
+  .related-sender { color: #374151; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .related-subject { color: #111827; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .related-tag-int { display: inline-block; background: #ddd6fe; color: #5b21b6; font-size: .7rem; font-weight: 600; padding: 0 .35rem; border-radius: 3px; margin-right: .3rem; }
+  .sender { color: #6b7280; font-size: .8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .received { color: #6b7280; font-size: .85rem; text-align: right; }
+  .owner { font-size: .85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .owner-empty { color: #9ca3af; font-style: italic; }
+
+  /* pills */
+  .pill { display: inline-block; padding: .15rem .6rem; border-radius: 999px; font-size: .72rem; font-weight: 600; line-height: 1.4; }
+  .status-new { background: #dbeafe; color: #1e40af; }
+  .status-inprogress { background: #fef3c7; color: #92400e; }
+  .status-blocked { background: #fee2e2; color: #991b1b; }
+  .status-done { background: #e5e7eb; color: #4b5563; }
+  .blocker { background: #fecaca; color: #7f1d1d; margin-left: .25rem; }
+  .buyer { background: #ddd6fe; color: #5b21b6; margin-left: .25rem; font-variant: small-caps; }
+  .po-link {
+    background: #e0e7ff; color: #3730a3; text-decoration: none;
+    border: 1px solid #c7d2fe; margin-left: .25rem;
+    font-variant-numeric: tabular-nums; transition: background .1s, color .1s;
+  }
+  .po-link:hover { background: #c7d2fe; color: #1e1b4b; }
+  .pay-paid { background: #dcfce7; color: #166534; margin-left: .25rem; }
+  .pay-posted { background: #e0f2fe; color: #075985; margin-left: .25rem; }
+  .pay-unposted { background: #fef3c7; color: #92400e; margin-left: .25rem; }
+  /* pipeline badges — where each message currently sits in the processing flow */
+  .pipeline { margin-left: .25rem; font-size: .65rem; letter-spacing: .04em; text-transform: uppercase; }
+  .pipeline-sorted     { background: #e0e7ff; color: #3730a3; }
+  .pipeline-extracting { background: #fef3c7; color: #92400e; }
+  .pipeline-rescan     { background: #ffedd5; color: #9a3412; }
+  .pipeline-done       { background: #dcfce7; color: #166534; }
+  .pipeline-exhausted  { background: #fee2e2; color: #991b1b; }
+  .pipeline-error      { background: #1f2937; color: #fecaca; }
+
+  /* AI-processed row indicator */
+  .ai-dot { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 22px; padding: 0 .35rem; border-radius: 999px; font-size: .7rem; font-weight: 700; margin-right: .35rem; vertical-align: middle; cursor: help; letter-spacing: .02em; }
+  .ai-clean      { background: #16a34a; color: #fff; }
+  .ai-issue      { background: #f59e0b; color: #fff; }
+  .ai-error      { background: #dc2626; color: #fff; }
+  .ai-pending    { background: #6366f1; color: #fff; }
+  .ai-classified { background: #0ea5e9; color: #fff; font-size: .62rem; }
+  .ai-tagged     { background: #d1d5db; color: #4b5563; }
+  .kind { background: #e0f2fe; color: #075985; margin-left: .25rem; }
+  .kind-marketing, .kind-webinar, .kind-newsletter { background: #fce7f3; color: #9d174d; }
+  .kind-invoice, .kind-payment, .kind-po { background: #dcfce7; color: #166534; }
+  .kind-statement, .kind-credit, .kind-dispute { background: #fef9c3; color: #854d0e; }
+  .muted { color: #9ca3af; font-size: .8rem; }
+
+  /* actions */
+  .actions { display: flex; gap: .25rem; align-items: center; flex-wrap: wrap; }
+  .action-btn { background: #f3f4f6; border: 1px solid #e5e7eb; color: #374151; padding: .2rem .55rem; border-radius: .35rem; font-size: .75rem; cursor: pointer; font-weight: 500; text-decoration: none; display: inline-block; }
+  .action-btn:hover { background: #e5e7eb; color: #111827; }
+  .action-btn.claim { background: #dbeafe; border-color: #bfdbfe; color: #1e40af; }
+  .action-btn.claim:hover { background: #bfdbfe; }
+  .action-btn.release { background: #fef3c7; border-color: #fde68a; color: #92400e; }
+  .action-btn.reclassify { background: #f3e8ff; border-color: #d8b4fe; color: #6b21a8; }
+  .action-btn.reclassify:hover { background: #e9d5ff; }
+  .action-link { color: #6b7280; text-decoration: none; padding: .2rem .5rem; font-size: .9rem; }
+  .action-link:hover { color: #111827; }
+  .action-menu { position: relative; display: inline-block; }
+  .action-menu > summary { list-style: none; }
+  .action-menu > summary::-webkit-details-marker { display: none; }
+  .action-menu[open] > summary { background: #e5e7eb; }
+  .menu-box { position: absolute; top: calc(100% + 2px); right: 0; background: #fff; border: 1px solid #e5e7eb; border-radius: .5rem; box-shadow: 0 4px 12px rgba(0,0,0,.08); z-index: 20; min-width: 120px; display: flex; flex-direction: column; padding: .25rem; }
+  .menu-item { background: transparent; border: none; padding: .35rem .6rem; text-align: left; border-radius: .3rem; font-size: .8rem; cursor: pointer; color: #374151; }
+  .menu-item:hover { background: #f3f4f6; }
+  .menu-item.on { background: #fee2e2; color: #991b1b; font-weight: 600; }
+
+  /* detail pane */
+  .detail-inner { padding: 1rem 1.25rem; }
+  .detail-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding-bottom: .75rem; border-bottom: 1px solid #e5e7eb; }
+  .detail-vendor { font-size: .75rem; color: #6b7280; text-transform: uppercase; letter-spacing: .05em; font-weight: 600; }
+  .detail-subject { font-size: 1.1rem; font-weight: 600; margin-top: .25rem; color: #111827; }
+  .detail-close { display: flex; gap: .35rem; flex-shrink: 0; }
+  .detail-meta { padding: .75rem 0; font-size: .85rem; color: #374151; line-height: 1.6; border-bottom: 1px solid #f3f4f6; }
+  .detail-status-bar { padding: .75rem 0; display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; border-bottom: 1px solid #f3f4f6; }
+  .detail-actions { margin-left: auto; display: flex; gap: .35rem; align-items: center; }
+  .detail-section { padding: .75rem 0; border-bottom: 1px solid #f3f4f6; }
+  .detail-section:last-child { border-bottom: none; }
+  .section-label { font-size: .7rem; text-transform: uppercase; letter-spacing: .05em; color: #9ca3af; font-weight: 600; margin-bottom: .5rem; }
+  .attach-list { display: flex; flex-direction: column; gap: .35rem; }
+  .attach-item { display: flex; align-items: baseline; gap: .5rem; padding: .5rem .6rem; background: #f9fafb; border-radius: .35rem; }
+  .attach-link { text-decoration: none; cursor: pointer; border: 1px solid #e5e7eb; transition: all .1s; }
+  .attach-link:hover { background: #eff6ff; border-color: #bfdbfe; }
+  .attach-link:hover .attach-name { color: #1e40af; }
+  .attach-name { font-weight: 500; color: #374151; font-size: .85rem; }
+  .attach-meta { font-size: .75rem; }
+  .attach-preview { width: 100%; height: 500px; border: 1px solid #e5e7eb; border-radius: .35rem; background: #fff; }
+  .body-frame { width: 100%; min-height: 500px; max-height: 2400px; border: 1px solid #e5e7eb; border-radius: .35rem; background: #fff; }
+  .body-text { font-family: ui-monospace, Menlo, monospace; font-size: .85rem; padding: .75rem; background: #f9fafb; border-radius: .35rem; white-space: pre-wrap; word-break: break-word; max-height: 400px; overflow-y: auto; margin: 0; }
+  /* Gmail-style thread cards */
+  .thread-stack { display: flex; flex-direction: column; gap: .5rem; position: relative; }
+  .thread-stack::before { content: ""; position: absolute; left: 20px; top: 0; bottom: 0; width: 1px; background: #e5e7eb; z-index: 0; }
+  .thread-card { background: #fff; border: 1px solid #e5e7eb; border-radius: .45rem; overflow: hidden; position: relative; z-index: 1; }
+  .thread-card.thread-card-current { border-color: #1e40af; box-shadow: 0 0 0 1px #1e40af; }
+  .thread-card.thread-card-internal { border-color: #c4b5fd; background: #faf5ff; }
+  .thread-card.thread-card-internal > summary { font-style: normal; }
+  .thread-card-header { list-style: none; cursor: pointer; padding: .6rem .85rem; display: grid; grid-template-columns: 1fr auto; align-items: flex-start; gap: .75rem; transition: background .1s; }
+  .thread-card-header::-webkit-details-marker { display: none; }
+  .thread-card-header::before { content: "▸"; font-size: .7rem; color: #9ca3af; margin-right: .4rem; display: inline-block; width: .7rem; }
+  .thread-card[open] > .thread-card-header::before { content: "▾"; color: #374151; }
+  .thread-card-header:hover { background: #f3f4f6; }
+  .thread-card.thread-card-internal > .thread-card-header:hover { background: #f5f3ff; }
+  .thread-card-who { min-width: 0; }
+  .thread-card-from { font-weight: 600; color: #111827; font-size: .9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .thread-card-preview { font-size: .82rem; margin-top: .2rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #6b7280; }
+  .thread-card[open] > .thread-card-header .thread-card-preview { display: none; }
+  .thread-card-when { font-size: .78rem; white-space: nowrap; color: #6b7280; }
+  .thread-card-body { padding: .35rem .85rem .75rem; }
+  .thread-card-body > .body-frame { min-height: 250px; }
+  .thread-card-badge-int { display: inline-block; background: #ddd6fe; color: #5b21b6; font-size: .65rem; font-weight: 700; padding: .05rem .35rem; border-radius: 3px; margin-right: .35rem; text-transform: uppercase; letter-spacing: .04em; vertical-align: middle; }
+
+  /* Invoice extraction table */
+  .extract-header { display: grid; grid-template-columns: 1fr 1fr; gap: .25rem .75rem; font-size: .85rem; margin-bottom: .75rem; padding: .5rem .75rem; background: #f9fafb; border-radius: .35rem; }
+  .extract-lines { width: 100%; border-collapse: collapse; font-size: .85rem; }
+  .extract-lines th { text-align: left; font-weight: 600; color: #6b7280; text-transform: uppercase; font-size: .7rem; letter-spacing: .05em; padding: .35rem .5rem; border-bottom: 1px solid #e5e7eb; }
+  .extract-lines td { padding: .35rem .5rem; border-bottom: 1px solid #f3f4f6; color: #374151; }
+  .extract-lines th.num, .extract-lines td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .extract-error { color: #991b1b; background: #fee2e2; padding: .5rem .75rem; border-radius: .35rem; font-size: .85rem; }
+  .extract-pending { color: #78350f; background: #fef3c7; padding: .5rem .75rem; border-radius: .35rem; font-size: .85rem; }
+
+  /* Reconciliation table */
+  .recon-section.recon-all-good { background: #f0fdf4; border-left: 4px solid #22c55e; padding-left: .75rem; border-radius: .35rem; }
+  .recon-section.recon-has-issue { background: #fff7ed; border-left: 4px solid #f97316; padding-left: .75rem; border-radius: .35rem; }
+  .recon-totals { display: grid; grid-template-columns: repeat(4, 1fr); gap: .5rem; margin: .5rem 0 .75rem; font-size: .85rem; padding: .5rem .75rem; background: rgba(255,255,255,.6); border-radius: .35rem; }
+  .recon-ok { color: #166534; }
+  .recon-bad { color: #9a3412; }
+  .recon-lines { width: 100%; border-collapse: collapse; font-size: .82rem; }
+  .recon-lines th { font-weight: 600; color: #6b7280; text-transform: uppercase; font-size: .68rem; letter-spacing: .05em; padding: .3rem .4rem; border-bottom: 1px solid #e5e7eb; text-align: left; }
+  .recon-lines td { padding: .35rem .4rem; border-bottom: 1px solid #f3f4f6; vertical-align: top; }
+  .recon-lines th.num, .recon-lines td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .recon-row.recon-match td:first-child,
+  .recon-row.recon-extended_match td:first-child { color: #16a34a; font-weight: 700; }
+  .recon-row.recon-extended_match { background: rgba(34,197,94,.04); }
+  .recon-row.recon-price_mismatch td:first-child,
+  .recon-row.recon-qty_mismatch td:first-child,
+  .recon-row.recon-missing_from_invoice td:first-child { color: #d97706; font-weight: 700; }
+  .recon-row.recon-both_mismatch td:first-child,
+  .recon-row.recon-extra_on_invoice td:first-child { color: #dc2626; font-weight: 700; }
+  .recon-row.recon-match { background: rgba(34,197,94,.04); }
+  .recon-row.recon-price_mismatch, .recon-row.recon-qty_mismatch, .recon-row.recon-missing_from_invoice { background: rgba(249,115,22,.05); }
+  .recon-row.recon-both_mismatch, .recon-row.recon-extra_on_invoice { background: rgba(220,38,38,.06); }
+  /* Fee verdicts (shipping/tax/handling) — amber, distinct from real
+     mismatches because the "right answer" requires asking the buyer. */
+  .recon-row.recon-shipping_fee td:first-child,
+  .recon-row.recon-tax_fee td:first-child,
+  .recon-row.recon-handling_fee td:first-child { color: #b45309; font-weight: 700; }
+  .recon-row.recon-shipping_fee, .recon-row.recon-tax_fee, .recon-row.recon-handling_fee {
+    background: rgba(251,191,36,.10);
+  }
+  /* Fee-only discrepancy banner: shown above the totals when EVERY problem
+     line is a fee. Lets the clerk know "the lines all match — it's just
+     freight/tax to confirm with the buyer." */
+  .recon-fee-banner {
+    background: #fffbeb; color: #78350f; border: 1px solid #fde68a;
+    padding: .55rem .85rem; border-radius: .35rem; font-size: .85rem;
+    margin-bottom: .75rem; display: flex; align-items: center; gap: .5rem;
+  }
+  .recon-fee-banner strong { color: #78350f; }
+
+  /* Manual entry form (detail.html). Used for handwritten invoices,
+     scanned-image PDFs the OCR can't read, or any case where AI whiffed. */
+  .manual-entry-section > summary { padding: .5rem 0; }
+  .manual-entry-section > summary::-webkit-details-marker { display: none; }
+  .manual-entry-section > summary::before { content: "▸"; margin-right: .35rem; color: #9ca3af; }
+  .manual-entry-section[open] > summary::before { content: "▾"; }
+  .manual-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: .75rem 1rem;
+    padding: .75rem 0;
+  }
+  .manual-grid > label { display: flex; flex-direction: column; gap: .25rem; font-size: .8rem; color: #374151; }
+  .manual-grid > label > span { font-weight: 500; }
+  .manual-grid > label em { font-style: normal; }
+  .manual-grid > label > input {
+    border: 1px solid #d1d5db; border-radius: .3rem; padding: .4rem .6rem;
+    font-size: .9rem; color: #111827; background: #fff;
+  }
+  .manual-grid > label > input:focus { outline: 2px solid #93c5fd; outline-offset: -1px; border-color: #3b82f6; }
+  .manual-grid-wide { grid-column: 1 / -1; }
+  .manual-actions { display: flex; align-items: center; gap: 1rem; padding-top: .35rem; }
+  .action-btn.manual-save { background: #1e40af; border-color: #1e40af; color: #fff; padding: .4rem 1rem; font-size: .85rem; }
+  .action-btn.manual-save:hover { background: #1e3a8a; }
+  .manual-hint { font-size: .75rem; }
+
+  /* PDF rotation. The iframe holds the browser's native PDF viewer; we
+     CSS-transform a wrapper so the chrome rotates with the document.
+     Width/height swap on 90°/270° so the rotated PDF fits the available
+     horizontal space (the wrapper is taller than wide; rotated, it fills
+     the same area as before). */
+  .pdf-rotate-wrap { position: relative; width: 100%; height: 500px; overflow: hidden; }
+  .pdf-rotate-wrap > .attach-preview { width: 100%; height: 100%; border: 1px solid #e5e7eb; border-radius: .35rem; transition: transform .15s ease; transform-origin: 50% 50%; }
+  .pdf-rot-0 > .attach-preview   { transform: rotate(0deg); }
+  .pdf-rot-180 > .attach-preview { transform: rotate(180deg); }
+  /* For 90/270 we want the rotated content to fit the wrapper's width.
+     The iframe is sized to the wrapper's height (post-rotate width) and
+     vice versa, then translated back to fill. */
+  .pdf-rot-90, .pdf-rot-270 { height: 760px; }
+  .pdf-rot-90  > .attach-preview { transform: rotate(90deg);  width: 760px; height: 100%; transform-origin: 0 0; translate: 100% 0; }
+  .pdf-rot-270 > .attach-preview { transform: rotate(270deg); width: 760px; height: 100%; transform-origin: 0 0; translate: 0 100%; }
+  .pdf-rotate-btn { font-size: .9rem; padding: .15rem .5rem; }
+
+  /* Recon collapse-when-clean (UX roadmap #4):
+     - Clean recon: green summary card + collapsed <details> for line items.
+     - Discrepancy recon: matched lines hidden by default; toggle reveals them
+       so the eye lands on the differences first. */
+  .recon-clean-summary {
+    background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0;
+    padding: .65rem 1rem; border-radius: .35rem; font-size: .9rem;
+    margin-bottom: .75rem;
+  }
+  /* Why-blocked banner — natural-language synth of the discrepancy, shown
+     above the recon table so the eye lands on "what's wrong" before the
+     8-column grid. Same source as the Ask buttons so the wording matches
+     what the buyer/vendor sees. */
+  .recon-why-banner {
+    background: #fffbeb; color: #78350f; border: 1px solid #fde68a;
+    padding: .55rem .85rem; border-radius: .35rem; font-size: .9rem;
+    margin-bottom: .75rem; display: flex; align-items: flex-start; gap: .5rem;
+  }
+  .recon-why-icon { font-size: 1.05rem; line-height: 1.2; flex-shrink: 0; }
+
+  /* Vendor mini-history (detail). "Is this vendor normally smooth or
+     normally a fight?" Aggregate stats line + last-5 row list with status
+     glyph, PO, amount, pay status. */
+  .vendor-history-list { list-style: none; padding: 0; margin: .35rem 0 0; display: flex; flex-direction: column; gap: .2rem; }
+  .vh-row { display: grid; grid-template-columns: 1.25rem minmax(0, 1fr); gap: .35rem; align-items: baseline; padding: .25rem .35rem; border-radius: .25rem; }
+  .vh-row:hover { background: #f9fafb; }
+  .vh-status { font-weight: 700; text-align: center; font-size: .85rem; color: #6b7280; }
+  .vh-link {
+    display: grid; grid-template-columns: 70px minmax(0, 1fr) auto auto auto;
+    gap: .65rem; align-items: baseline; min-width: 0;
+    text-decoration: none; color: #111827; font-size: .85rem;
+  }
+  .vh-when { color: #6b7280; font-size: .78rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .vh-subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .vh-po { color: #3730a3; font-variant-numeric: tabular-nums; font-size: .78rem; }
+  .vh-amount { color: #065f46; font-variant-numeric: tabular-nums; font-weight: 500; font-size: .82rem; white-space: nowrap; }
+  .recon-section.recon-has-issue:not(.recon-show-all) .recon-row.recon-match,
+  .recon-section.recon-has-issue:not(.recon-show-all) .recon-row.recon-extended_match {
+    display: none;
+  }
+  .recon-toggle {
+    background: transparent; border: 1px solid #d1d5db; color: #374151;
+    padding: .15rem .55rem; border-radius: .25rem; font-size: .72rem;
+    cursor: pointer; margin-left: .75rem; transition: background .1s;
+  }
+  .recon-toggle:hover { background: #f3f4f6; }
+  .recon-table-wrap > summary {
+    list-style: none; cursor: pointer; padding: .35rem 0;
+    font-size: .78rem; color: #6b7280; user-select: none;
+  }
+  .recon-table-wrap > summary::-webkit-details-marker { display: none; }
+  .recon-table-wrap > summary::before { content: "▸"; margin-right: .35rem; }
+  .recon-table-wrap[open] > summary::before { content: "▾"; }
+  .recon-table-wrap > summary:hover { color: #111827; }
+
+  .empty-state { text-align: center; padding: 4rem 1rem; color: #9ca3af; }
+
+  /* Worker status bar */
+  .worker-bar { display: flex; align-items: center; gap: .6rem; padding: .35rem 1rem; font-size: .82rem; border-bottom: 1px solid #e5e7eb; background: #fafbfc; }
+  .worker-bar.worker-running { background: #ecfdf5; border-bottom-color: #a7f3d0; }
+  .worker-bar.worker-stale   { background: #fef2f2; border-bottom-color: #fecaca; }
+  .worker-bar.worker-idle    { background: #f9fafb; }
+  .worker-bar.worker-off     { background: #f9fafb; color: #9ca3af; }
+  .worker-dot { width: 8px; height: 8px; border-radius: 50%; background: #9ca3af; flex-shrink: 0; }
+  .worker-bar.worker-running .worker-dot { background: #10b981; animation: worker-pulse 1.4s ease-in-out infinite; }
+  .worker-bar.worker-stale   .worker-dot { background: #ef4444; }
+  .worker-bar.worker-idle    .worker-dot { background: #9ca3af; }
+  @keyframes worker-pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+  .worker-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #374151; }
+  .worker-text strong { font-variant: small-caps; letter-spacing: .03em; margin-right: .4rem; color: #111827; }
+  .worker-vendor { color: #6b7280; margin-right: .4rem; font-weight: 500; text-transform: uppercase; font-size: .72rem; letter-spacing: .05em; }
+  .worker-subject { color: #111827; }
+  .worker-elapsed { color: #6b7280; margin-left: .5rem; font-variant-numeric: tabular-nums; }
+  .worker-counts { display: flex; gap: .6rem; color: #374151; font-variant-numeric: tabular-nums; }
+  .worker-counts span { white-space: nowrap; }
+  .worker-link { color: #1e40af; text-decoration: none; font-size: .78rem; font-weight: 500; }
+  .worker-link:hover { text-decoration: underline; }
+
+  /* Optimistic UI feedback. HTMX adds .htmx-request to elements while their
+     network call is in flight; we use that to give immediate visual
+     feedback that the click was received. JS in optimistic.js applies
+     predicted DOM changes for claim/release/status to make the UI feel
+     instant — those changes are overwritten by the real server response
+     on success, or rolled back via snapshot on error. */
+  .action-btn.htmx-request, .menu-item.htmx-request {
+    opacity: .55; cursor: wait; pointer-events: none;
+    transition: opacity .1s;
+  }
+  .msg-row:has(.htmx-request) { background: #fffbeb; transition: background .15s; }
+  .detail-actions:has(.htmx-request) { opacity: .85; transition: opacity .1s; }
+
+  /* Optimistic-pending row marker — applied by JS to indicate "this row's
+     state may not match the server yet." Subtle so it doesn't distract. */
+  .msg-row.opt-pending::before {
+    content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+    background: linear-gradient(to bottom, #3b82f6, #93c5fd); animation: opt-pulse 1s ease-in-out infinite;
+  }
+  .msg-row { position: relative; }
+  @keyframes opt-pulse { 0%,100% { opacity: 1 } 50% { opacity: .4 } }
+
+  /* Toast — bottom-right, fades after 3s. Used to surface errors when the
+     optimistic update is rolled back, so the clerk knows their action
+     didn't take. */
+  #toast-stack { position: fixed; bottom: 1rem; right: 1rem; z-index: 1000; display: flex; flex-direction: column; gap: .5rem; pointer-events: none; }
+  .toast {
+    background: #fff; border: 1px solid #e5e7eb; border-left: 4px solid #3b82f6;
+    padding: .65rem 1rem; border-radius: .35rem; box-shadow: 0 4px 12px rgba(0,0,0,.08);
+    font-size: .85rem; color: #111827; max-width: 360px;
+    animation: toast-in .15s ease-out; pointer-events: auto;
+  }
+  .toast.toast-error { border-left-color: #dc2626; }
+  .toast.toast-out { animation: toast-out .25s ease-in forwards; }
+  @keyframes toast-in { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+  @keyframes toast-out { to { opacity: 0; transform: translateX(20px); } }
+{{end}}
+<div class="app-header d-flex justify-content-between align-items-center">
+  <div class="app-title"><a href="/" style="color:inherit;text-decoration:none;">Dispatch — AP</a></div>
+  <nav class="app-nav" style="display:flex;gap:.85rem;align-items:center;font-size:.85rem;">
+    <a href="/" style="color:#d1d5db;text-decoration:none;">Queue</a>
+    <a href="/ap" style="color:#d1d5db;text-decoration:none;">AP View</a>
+    <a href="/admin/overview" style="color:#d1d5db;text-decoration:none;">Overview</a>
+  </nav>
+  <form class="search-form" action="/search" method="get" style="flex: 1; max-width: 560px; margin: 0 1rem;">
+    <input class="search-input" type="search" name="q" value="{{.Query}}"
+           placeholder="Search PO, invoice, vendor, subject, sender..."
+           style="width: 100%; padding: .4rem .85rem; border-radius: 999px; border: 1px solid #374151; background: #1f2937; color: #f9fafb; font-size: .85rem;">
+  </form>
+
+  {{/* Impersonation: admin-only "view as" dropdown. Pulls live from P21
+       (5-min cache). When active, hides the dropdown and shows the
+       impersonated user instead with a one-click exit form. */}}
+  {{if .Impersonating}}
+    <form action="/impersonate/exit" method="post" style="margin: 0;">
+      <button type="submit" class="impersonate-exit-btn"
+              title="Stop impersonating and return to your own view">
+        ✕ Exit "{{.ImpersonatedName}}"
+      </button>
+    </form>
+  {{else if .APUsers}}
+    <form action="/impersonate" method="post" style="margin: 0; display: flex; align-items: center; gap: .35rem;">
+      <label for="impersonate-pick" class="impersonate-label">view as:</label>
+      <select id="impersonate-pick" name="user" class="impersonate-select"
+              onchange="if(this.value)this.form.submit();">
+        <option value="">— pick AP user —</option>
+        {{range .APUsers}}
+          <option value="{{.ID}}">{{.Name}} <!-- {{.Role}} --></option>
+        {{end}}
+      </select>
+    </form>
+  {{end}}
+
+  <div style="font-size: .85rem; opacity: .7;">mailbox: {{.Mailbox}} · user: {{if .AuthUser}}{{.AuthUser}}{{else}}{{.User}}{{end}}</div>
+</div>
+
+{{if .Impersonating}}
+<div class="impersonate-banner">
+  <span><strong>Viewing as {{.ImpersonatedName}}</strong> · this is the screen they see</span>
+  <form action="/impersonate/exit" method="post" style="margin: 0;">
+    <button type="submit" class="impersonate-banner-exit">Return to admin view</button>
+  </form>
+</div>
+{{end}}
+
+<div id="worker-bar-slot"
+     hx-get="/worker/status"
+     hx-trigger="load, every 5s"
+     hx-swap="innerHTML">
+  <div class="worker-bar worker-off"><span class="worker-dot"></span><span class="worker-text">loading worker status…</span></div>
+</div>
+
+<details class="ai-legend-panel" style="background: #fff; border-bottom: 1px solid #e5e7eb; padding: 0 1rem;">
+  <summary style="cursor: pointer; font-size: .75rem; color: #6b7280; padding: .35rem 0; list-style: none;">
+    <span style="display: inline-flex; align-items: center; gap: .35rem;">
+      <span class="ai-dot ai-clean">✓</span>
+      <span class="ai-dot ai-issue">⚠</span>
+      <span class="ai-dot ai-error">✕</span>
+      <span class="ai-dot ai-pending">○</span>
+      <span class="ai-dot ai-classified">AI</span>
+      <span class="ai-dot ai-tagged">✔</span>
+      <span style="margin-left: .5rem;">AI icon legend (click to expand)</span>
+    </span>
+  </summary>
+  <div style="padding: .5rem 0 .85rem; font-size: .8rem; color: #374151; display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: .5rem 1.25rem;">
+    <div><span class="ai-dot ai-clean">✓</span> <strong>Match</strong> — AI compared the invoice to the PO and everything lines up.</div>
+    <div><span class="ai-dot ai-issue">⚠</span> <strong>Discrepancy</strong> — AI found a price, quantity, or total mismatch. Click the row to review.</div>
+    <div><span class="ai-dot ai-error">✕</span> <strong>Error</strong> — AI couldn't extract the invoice (bad PDF, timeout). Worth a manual look.</div>
+    <div><span class="ai-dot ai-pending">○</span> <strong>Pending</strong> — AI read the invoice but P21 had no PO lines to compare against.</div>
+    <div><span class="ai-dot ai-classified">AI</span> <strong>Classified</strong> — LLM labeled the message kind (marketing, webinar, etc.); no PDF to extract.</div>
+    <div><span class="ai-dot ai-tagged">✔</span> <strong>Tagged</strong> — Dispatch processed via deterministic rules (sender domain, PO from subject, P21 lookup). No AI needed.</div>
+  </div>
+</details>
+
+<div class="filters d-flex gap-1 align-items-center">
+  {{if .Query}}
+    <div style="padding: .35rem 1rem; font-size: .85rem; color: #374151;">
+      <strong>{{len .Messages}}</strong> search result{{if ne (len .Messages) 1}}s{{end}} for <strong>{{.Query}}</strong>
+      · <a href="/" style="color: #1e40af;">clear search</a>
+    </div>
+  {{else if .PONo}}
+    <div style="padding: .35rem 1rem; font-size: .85rem; color: #374151;">
+      <strong>{{len .Messages}}</strong> message{{if ne (len .Messages) 1}}s{{end}} on <strong>PO {{.PONo}}</strong>
+      · <a href="/" style="color: #1e40af;">clear PO filter</a>
+      {{if gt .QueueTotal 0.0}}<span class="muted" style="margin-left:.5rem;">· ${{thousands .QueueTotal}} ({{.QueueTotalRows}} extracted)</span>{{end}}
+    </div>
+  {{else if .QueueDrill}}
+    <div style="padding: .35rem 1rem; font-size: .85rem; color: #374151;">
+      <strong>{{len .Messages}}</strong> message{{if ne (len .Messages) 1}}s{{end}} ·
+      <strong>{{.QueueDrillLabel}}</strong> (last 7 days, from /admin)
+      · <a href="/" style="color: #1e40af;">clear queue filter</a>
+    </div>
+  {{else}}
+    {{range .Filters}}
+      <button class="filter-btn {{if eq .Key $.Active}}active{{end}}"
+              hx-get="/list?filter={{.Key}}"
+              hx-target="#list"
+              hx-push-url="/?filter={{.Key}}">
+        {{.Label}}<span class="filter-count">{{.Count}}</span>
+      </button>
+    {{end}}
+    {{if gt .QueueTotal 0.0}}
+      <span class="queue-total-chip ms-auto" title="Sum of extracted invoice totals across the visible filter ({{.QueueTotalRows}} rows extracted)">
+        ${{thousands .QueueTotal}}
+        <span class="queue-total-rows">· {{.QueueTotalRows}} extracted</span>
+      </span>
+    {{end}}
+    <a class="filter-btn {{if not (gt .QueueTotal 0.0)}}ms-auto{{end}}" href="/review?filter={{.Active}}"
+       style="background:#1e40af;color:#fff;font-weight:500;text-decoration:none;margin-left:.5rem;"
+       title="Open the active filter in full-screen Review Mode">
+       Review →
+    </a>
+    <div style="font-size: .8rem; color: #6b7280; margin-left: .5rem;">
+      auto-refresh 10s
+    </div>
+  {{end}}
+</div>
+
+<div class="app-body">
+  <div class="list-pane">
+    <div id="list"
+         hx-get="/list"
+         hx-vals='js:{filter: new URLSearchParams(location.search).get("filter") || "open"}'
+         hx-trigger="every 10s"
+         hx-swap="innerHTML">
+      {{template "list.html" .}}
+    </div>
+  </div>
+  <div class="resizer" id="resizer" title="Drag to resize · double-click to reset"></div>
+  <div class="detail-pane">
+    <div id="detail"></div>
+  </div>
+</div>
+
+<script>
+// resizeEmailFrame fits a message-body iframe to its content height. Sandbox
+// needs allow-same-origin (we control the body endpoint). Called from iframe
+// onload in the thread cards.
+function resizeEmailFrame(frame) {
+  try {
+    const doc = frame.contentDocument;
+    if (!doc || !doc.body) return;
+    const h = Math.min(2400, Math.max(500, doc.body.scrollHeight + 20));
+    frame.style.height = h + 'px';
+  } catch (e) { /* cross-origin or not ready — leave min-height */ }
+}
+(function() {
+  const MIN = 420, RESET = 820;
+  const docStyle = document.documentElement.style;
+
+  // Restore saved width on load
+  const saved = parseInt(localStorage.getItem('dispatch-detail-width') || '', 10);
+  if (saved && saved >= MIN) docStyle.setProperty('--detail-width', saved + 'px');
+
+  const resizer = document.getElementById('resizer');
+  if (!resizer) return;
+
+  let startX = 0, startWidth = 0, dragging = false;
+
+  resizer.addEventListener('mousedown', (e) => {
+    startX = e.clientX;
+    const detail = document.querySelector('.detail-pane');
+    startWidth = detail ? detail.offsetWidth : RESET;
+    dragging = true;
+    document.body.classList.add('resizing');
+    resizer.classList.add('dragging');
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    const delta = startX - e.clientX; // dragging left grows the detail pane
+    const maxW = Math.max(MIN, window.innerWidth - 300);
+    const newWidth = Math.min(Math.max(startWidth + delta, MIN), maxW);
+    docStyle.setProperty('--detail-width', newWidth + 'px');
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false;
+    document.body.classList.remove('resizing');
+    resizer.classList.remove('dragging');
+    const cur = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--detail-width'), 10);
+    if (cur && cur >= MIN) localStorage.setItem('dispatch-detail-width', String(cur));
+  });
+
+  resizer.addEventListener('dblclick', () => {
+    docStyle.setProperty('--detail-width', RESET + 'px');
+    localStorage.removeItem('dispatch-detail-width');
+  });
+})();
+
+/*
+ * PDF rotation: ↺/↻ buttons in the detail attachment preview. Persists per
+ * (message, attachment) so a clerk who rotates a sideways scan once doesn't
+ * have to redo it next time the row is opened. Uses event delegation on
+ * document.body so it survives HTMX swaps of the detail pane.
+ */
+(function () {
+  const STEPS = [0, 90, 180, 270];
+  function nextAngle(current, dir) {
+    let i = STEPS.indexOf(((current % 360) + 360) % 360);
+    if (i < 0) i = 0;
+    i = dir === 'cw' ? (i + 1) % 4 : (i + 3) % 4;
+    return STEPS[i];
+  }
+  function applyAngle(wrap, angle) {
+    const inner = wrap.querySelector('.pdf-rotate-wrap');
+    if (!inner) return;
+    inner.classList.remove('pdf-rot-0', 'pdf-rot-90', 'pdf-rot-180', 'pdf-rot-270');
+    inner.classList.add('pdf-rot-' + angle);
+    wrap.dataset.angle = String(angle);
+    const display = wrap.querySelector('.pdf-angle-display');
+    if (display) display.textContent = angle ? ('rotated ' + angle + '°') : '';
+  }
+
+  document.body.addEventListener('click', function (e) {
+    const btn = e.target && e.target.closest && e.target.closest('.pdf-rotate-btn');
+    if (!btn) return;
+    const wrap = btn.closest('[data-pdf-rotation]');
+    if (!wrap) return;
+    const cur = parseInt(wrap.dataset.angle || '0', 10);
+    const next = nextAngle(cur, btn.dataset.dir || 'cw');
+    applyAngle(wrap, next);
+
+    const msgID = wrap.dataset.msgId;
+    const attID = wrap.dataset.attId;
+    if (!msgID || !attID) return;
+    const fd = new FormData();
+    fd.append('angle', String(next));
+    fetch('/message/' + msgID + '/attachment/' + attID + '/rotation', {
+      method: 'POST', body: fd, credentials: 'same-origin'
+    }).catch(function () {
+      if (window.dispatchToast) window.dispatchToast('Rotation save failed — local only.', 'error');
+    });
+  });
+})();
+
+/*
+ * Split-pane keyboard nav: ↑/↓ moves the row selection, opens the detail
+ * pane for the new selection. Mirrors the keyboard nav in /review but
+ * scoped to the list view, so a clerk who prefers split-pane gets the
+ * same hands-on-keyboard rhythm.
+ */
+(function () {
+  const ACTIVE = 'row-active';
+
+  function getRows() {
+    return Array.from(document.querySelectorAll('.msg-row'));
+  }
+  function currentIndex(rows) {
+    const idx = rows.findIndex(r => r.classList.contains(ACTIVE));
+    return idx >= 0 ? idx : -1;
+  }
+  // Async voucher recheck — fired when leaving a message, so the prior
+  // row's pay_status reflects what AP just entered in P21 without waiting
+  // for the 10-min bulk sync. No-op for messages without an extraction.
+  function recheckRow(row) {
+    if (!row || !row.id) return;
+    const m = /^row-(.+)$/.exec(row.id);
+    if (!m) return;
+    try {
+      fetch('/message/' + m[1] + '/recheck-voucher', {
+        method: 'POST', keepalive: true, credentials: 'same-origin'
+      }).catch(() => {});
+    } catch (e) { /* ignore */ }
+  }
+
+  function activate(rows, idx) {
+    // Recheck the row we're leaving (if any) before changing selection.
+    const prev = rows.find(r => r.classList.contains(ACTIVE));
+    if (prev) recheckRow(prev);
+
+    rows.forEach(r => r.classList.remove(ACTIVE));
+    if (idx < 0 || idx >= rows.length) return;
+    const row = rows[idx];
+    row.classList.add(ACTIVE);
+    row.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    // Fire the row-body's HTMX click so detail loads.
+    const body = row.querySelector('.row-body');
+    if (body && window.htmx) window.htmx.trigger(body, 'click');
+  }
+
+  document.addEventListener('keydown', function (e) {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+
+    const rows = getRows();
+    if (rows.length === 0) return;
+    const cur = currentIndex(rows);
+    let next = cur;
+    if (e.key === 'ArrowDown') next = cur < 0 ? 0 : Math.min(rows.length - 1, cur + 1);
+    if (e.key === 'ArrowUp')   next = cur < 0 ? 0 : Math.max(0, cur - 1);
+    if (next === cur && cur >= 0) return; // already at edge — let the page scroll naturally
+    e.preventDefault();
+    activate(rows, next);
+  });
+})();
+</script>
+
+<div id="toast-stack"></div>
+<script>window.dispatchUser = "{{.User}}";</script>
+{{template "optimistic-js" .}}
+
+</body>
+</html>
+
+{{define "optimistic-js"}}
+<script>
+/*
+ * Optimistic UI for Dispatch action buttons.
+ *
+ * What it does: when a clerk clicks a button with [data-optimistic],
+ * we predict the server response and patch the visible row immediately,
+ * then let HTMX do the real network call. On success the swap brings in
+ * the actual server-rendered row and overwrites our prediction (which
+ * usually matches). On error we restore from a snapshot and toast.
+ *
+ * Why: paper-AP feels instant — a stamp lands the moment it's pressed.
+ * Without this, every claim/status click had a 300-1500ms gap between
+ * the click and the visible state change while Graph round-tripped.
+ */
+(function () {
+  const me = window.dispatchUser || 'me';
+
+  function snapshotRow(row) { row.dataset.optSnapshot = row.outerHTML; row.classList.add('opt-pending'); }
+  function restoreRow(row) {
+    if (!row.dataset.optSnapshot) return;
+    row.outerHTML = row.dataset.optSnapshot;
+  }
+
+  function applyOptimistic(btn, hint) {
+    const row = btn.closest('.msg-row');
+    if (!row) return;
+    snapshotRow(row);
+
+    // hint is a string like "claim" or "status:Done" or "blocker:Pricing"
+    const [action, value] = hint.split(':');
+
+    if (action === 'claim') {
+      const ownerEl = row.querySelector('.owner');
+      if (ownerEl) {
+        ownerEl.textContent = me;
+        ownerEl.classList.remove('owner-empty');
+      }
+      btn.classList.replace('claim', 'release');
+      btn.title = 'Release';
+      btn.textContent = '↻';
+      btn.dataset.optimistic = 'release';
+    } else if (action === 'release') {
+      const ownerEl = row.querySelector('.owner');
+      if (ownerEl) {
+        ownerEl.textContent = 'unclaimed';
+        ownerEl.classList.add('owner-empty');
+      }
+      btn.classList.replace('release', 'claim');
+      btn.title = 'Claim';
+      btn.textContent = '✓';
+      btn.dataset.optimistic = 'claim';
+    } else if (action === 'status') {
+      // Replace any existing status pill with the new one. Slug must match
+      // server's statusSlug template func (lowercases + replaces spaces).
+      const slug = value.toLowerCase().replace(/\s+/g, '-');
+      let pill = row.querySelector('.pill[class*="status-"]');
+      if (pill) {
+        pill.className = 'pill status-' + slug;
+        pill.textContent = value;
+      } else {
+        // No existing pill — inject one. Insert into the pills cell (the div
+        // immediately before .actions).
+        const pillCell = row.querySelector('.row-body > div:last-child');
+        if (pillCell) {
+          pill = document.createElement('span');
+          pill.className = 'pill status-' + slug;
+          pill.textContent = value;
+          pillCell.prepend(pill);
+        }
+      }
+      // If status is Done, dim the row — it's about to leave most filters.
+      if (value === 'Done') row.style.opacity = '.6';
+    }
+  }
+
+  document.body.addEventListener('htmx:beforeRequest', function (e) {
+    const btn = e.detail.elt;
+    if (!btn || !btn.dataset || !btn.dataset.optimistic) return;
+    applyOptimistic(btn, btn.dataset.optimistic);
+  });
+
+  // After-swap removes the opt-pending marker because the server response
+  // has now overwritten our optimistic row. (Server truth wins.)
+  document.body.addEventListener('htmx:afterSwap', function (e) {
+    const t = e.detail.target;
+    if (t && t.classList && t.classList.contains('opt-pending')) {
+      t.classList.remove('opt-pending');
+      delete t.dataset.optSnapshot;
+    }
+  });
+
+  document.body.addEventListener('htmx:responseError', function (e) {
+    const btn = e.detail.elt;
+    const row = btn && btn.closest && btn.closest('.msg-row');
+    if (row && row.dataset.optSnapshot) {
+      restoreRow(row);
+    }
+    showToast('Action failed — reverted. Check Graph or worker logs.', 'error');
+  });
+
+  document.body.addEventListener('htmx:sendError', function (e) {
+    // Network error (server unreachable) — same recovery as response error.
+    const btn = e.detail.elt;
+    const row = btn && btn.closest && btn.closest('.msg-row');
+    if (row && row.dataset.optSnapshot) restoreRow(row);
+    showToast('Network error — action reverted.', 'error');
+  });
+
+  // Toast helper — the # of concurrent toasts can stack vertically. Each
+  // clears itself after 3 seconds with a fade-out.
+  function showToast(text, kind) {
+    const stack = document.getElementById('toast-stack');
+    if (!stack) return;
+    const t = document.createElement('div');
+    t.className = 'toast' + (kind === 'error' ? ' toast-error' : '');
+    t.textContent = text;
+    stack.appendChild(t);
+    setTimeout(function () {
+      t.classList.add('toast-out');
+      setTimeout(function () { t.remove(); }, 250);
+    }, 3000);
+  }
+  // Expose for callers (review-mode keyboard handlers, etc.)
+  window.dispatchToast = showToast;
+})();
+</script>
+{{end}}
