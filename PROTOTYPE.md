@@ -2,7 +2,7 @@
 
 ## Problem Statement
 
-The company's AP clerks get vendor emails scattered across 13+ shared inboxes (`ap@`, regional aliases, individual clerks). Each email is a to-do: match it to P21, resolve discrepancies, file it. Today there's no shared view of what's in flight, who's working on what, or what's blocked waiting on purchasing or a vendor callback.
+The company's AP clerks get vendor emails scattered across 13+ shared inboxes (`ap@`, regional aliases, individual clerks). Each email is a to-do: match it to the ERP, resolve discrepancies, file it. Today there's no shared view of what's in flight, who's working on what, or what's blocked waiting on purchasing or a vendor callback.
 
 **Front solves this commercially, but at ~$50/user/mo × 20+ users = $12K+/yr — and that number only grows when sales adopts it too. For a family-owned distributor with M365 already paid for, that license cost is the deal-breaker.**
 
@@ -11,7 +11,7 @@ The company's AP clerks get vendor emails scattered across 13+ shared inboxes (`
 Dispatch does NOT replace Outlook. Clerks keep reading and replying in Outlook. Dispatch is a **cross-inbox dashboard** that:
 
 1. Polls the AP mailboxes via Graph API
-2. Auto-resolves each message to a P21 vendor
+2. Auto-resolves each message to a the ERP vendor
 3. Exposes a unified view where clerks can see everything across mailboxes and set `Owner:`, `Status:`, and `Blocker:` values
 4. Writes those values back as Outlook Categories — so the shared signal is visible to clerks working directly in Outlook too
 
@@ -22,7 +22,7 @@ What Dispatch gives AP that Outlook alone can't:
 - Cross-mailbox unified list (one view of everything across the AP shared mailboxes)
 - Visibility into who's on what
 - Named blocker states (Purchasing, Vendor, Pricing, PO) that cross-cut mailboxes
-- Deep P21 integration (vendor resolution, PO lookup, pricing context) that no SaaS can build
+- Deep the ERP integration (vendor resolution, PO lookup, pricing context) that no SaaS can build
 - Future: document-storage filing automation
 
 What Dispatch deliberately does NOT give (Outlook already does it well):
@@ -37,7 +37,7 @@ What Dispatch deliberately does NOT give (Outlook already does it well):
 ### In scope
 
 - Poll **one prototype mailbox** (`catchall@example.com`) via Graph
-- Auto-resolve sender → P21 vendor, write `Vendor:` category
+- Auto-resolve sender → the ERP vendor, write `Vendor:` category
 - Unified list UI (single mailbox for MVP; architected for N)
 - Set `Owner:` / `Status:` / `Blocker:` via UI → writes categories back via Graph
 - Category changes made from Outlook flow through to Dispatch on next poll (no UI needed to display them; that already works)
@@ -72,7 +72,7 @@ What Dispatch deliberately does NOT give (Outlook already does it well):
                          │          │
                          ▼          ▼
               ┌────────────────┐  ┌───────────────┐
-              │ Dispatch       │  │ P21 (vendor   │
+              │ Dispatch       │  │ the ERP (vendor   │
               │ SQLite cache   │  │ master +      │
               │ (vendor_map,   │  │ contact       │
               │  last-synced)  │  │ email)        │
@@ -87,12 +87,12 @@ What Dispatch deliberately does NOT give (Outlook already does it well):
               └─────────────────┘
 ```
 
-Two processes, shared Graph client + P21 connection:
+Two processes, shared Graph client + the ERP connection:
 
 - **Worker**: polls Graph every few minutes, resolves vendors, writes `Vendor:` categories on new messages
 - **Web**: shows the unified list; clerk actions PATCH categories directly to Graph; SQLite holds the vendor map and a thin message cache for list performance
 
-SQLite is **cache, not source of truth**. If it's deleted, the next worker pass rebuilds it from Graph + P21.
+SQLite is **cache, not source of truth**. If it's deleted, the next worker pass rebuilds it from Graph + the ERP.
 
 ## Data Model
 
@@ -100,7 +100,7 @@ SQLite is **cache, not source of truth**. If it's deleted, the next worker pass 
 
 | Namespace | Values | Cardinality | Who writes | Notes |
 |---|---|---|---|---|
-| `Vendor` | P21 vendor name (e.g. `HVAC-Vendor Co.`) or `Unknown` | single | Dispatch worker | Set on ingest, never overwritten |
+| `Vendor` | the ERP vendor name (e.g. `HVAC-Vendor Co.`) or `Unknown` | single | Dispatch worker | Set on ingest, never overwritten |
 | `Owner` | example.com username (e.g. `dsowell`) | single | Clerk via Dispatch or Outlook | Claim action |
 | `Status` | `New` / `In Progress` / `Blocked` / `Done` | single | Clerk action | Defaults to `New` on ingest |
 | `Blocker` | `Purchasing` / `Vendor` / `Pricing` / `PO` | multi | Clerk action | Only meaningful when `Status: Blocked` |
@@ -113,7 +113,7 @@ Four namespaces. `Vendor` is auto-set. `Owner`, `Status`, `Blocker` are clerk-ed
 CREATE TABLE vendor_map (
     email TEXT PRIMARY KEY,
     domain TEXT NOT NULL,
-    p21_vendor_id TEXT,
+    erp_vendor_id TEXT,
     vendor_name TEXT NOT NULL,
     source TEXT NOT NULL,              -- 'vendor_ud.ap_email' / 'contacts.email_address' / 'manual'
     refreshed_at TIMESTAMP
@@ -121,7 +121,7 @@ CREATE TABLE vendor_map (
 
 CREATE TABLE domain_map (
     domain TEXT PRIMARY KEY,
-    p21_vendor_id TEXT,                -- only populated if unambiguous (1 domain → 1 vendor)
+    erp_vendor_id TEXT,                -- only populated if unambiguous (1 domain → 1 vendor)
     vendor_name TEXT,
     vendor_count INTEGER NOT NULL,     -- how many vendors share this domain
     refreshed_at TIMESTAMP
@@ -139,7 +139,7 @@ CREATE TABLE message_cache (
 );
 ```
 
-`vendor_map` and `domain_map` are already built from `data/vendor_emails.json` and `data/vendor_domains.json` — just need a nightly refresh job that re-runs the P21 query.
+`vendor_map` and `domain_map` are already built from `data/vendor_emails.json` and `data/vendor_domains.json` — just need a nightly refresh job that re-runs the the ERP query.
 
 `message_cache` exists only so the list view renders fast. Actions always go to Graph.
 
@@ -182,14 +182,14 @@ Three panes, Front-inspired but thin:
 ### Flow A: New invoice arrives
 1. Vendor emails `ap@example.com`
 2. Dispatch worker picks it up within 5 min
-3. Worker resolves sender → P21 vendor, writes `Vendor: HVAC-Vendor Co.` + `Status: New`
+3. Worker resolves sender → the ERP vendor, writes `Vendor: HVAC-Vendor Co.` + `Status: New`
 4. Appears in Unclaimed list at the top
 
-### Flow B: Clerk claims + enters in P21
+### Flow B: Clerk claims + enters in the ERP
 1. an AP clerk opens Dispatch, sees HVAC-Vendor invoice in Unclaimed
 2. Clicks **Claim** → writes `Owner: dsowell`
 3. Clicks **Status ▼ → In Progress**
-4. Opens P21 in another tab, enters the invoice
+4. Opens the ERP in another tab, enters the invoice
 5. Back in Dispatch, **Status ▼ → Done**
 6. Disappears from open views; remains in Completed for 30 days
 
@@ -199,7 +199,7 @@ Three panes, Front-inspired but thin:
 3. She leaves a note in the message subject line or replies internally in Outlook
 4. another internal user has "Blocker: Purchasing" as her default filter; sees it
 5. another internal user replies in Outlook with the correct price
-6. an AP clerk sees the reply in Outlook, updates P21, sets `Status: Done`, removes Blocker
+6. an AP clerk sees the reply in Outlook, updates the ERP, sets `Status: Done`, removes Blocker
 
 ### Flow D: Tool-resistant clerk
 1. Kandi doesn't want to use Dispatch
@@ -221,7 +221,7 @@ This is not possible in Outlook alone.
 
 ## Components to Build — Ordered
 
-1. **`vendor-sync`** — P21 query → SQLite (`vendor_map`, `domain_map`). **Already done as static JSON; wrap in a Go binary + nightly cron.**
+1. **`vendor-sync`** — the ERP query → SQLite (`vendor_map`, `domain_map`). **Already done as static JSON; wrap in a Go binary + nightly cron.**
 2. **Graph mail client** — extend the upstream phishing-filter's auth + fetch pattern with PATCH support for categories + master category helpers
 3. **Vendor resolver** — sender email/domain → vendor name using `vendor_map` then `domain_map` (only unambiguous domains; ambiguous domains → `Unknown`)
 4. **Worker binary** — `dispatch worker`: poll one mailbox, resolve + write Vendor/Status categories, sleep
@@ -305,4 +305,4 @@ Used for Phase 1 plumbing validation only. Contains phishing, DMARC reports, spa
 - **Go + HTMX + Bootstrap + SQLite**, matching workspace conventions.
 - **Status taxonomy: `New` / `In Progress` / `Blocked` / `Done`** — four values, don't add more. Use `Blocker` namespace to encode specifics.
 - **Cross-inbox unified view is the core value-add** — the one thing Outlook alone can't do.
-- **P21 integration is the moat** — no SaaS can build this for us; it's why we're not just buying Front.
+- **the ERP integration is the moat** — no SaaS can build this for us; it's why we're not just buying Front.

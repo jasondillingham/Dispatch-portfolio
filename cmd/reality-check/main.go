@@ -1,6 +1,6 @@
 // reality-check fetches recent messages from a mailbox, classifies each sender
 // (internal/relay/logistics/bank/vendor), then runs vendor-class senders through
-// the P21 resolver. Reports coverage in two layers so internal chatter and
+// the the ERP resolver. Reports coverage in two layers so internal chatter and
 // automation relays don't dilute the vendor-match number.
 //
 // Usage:

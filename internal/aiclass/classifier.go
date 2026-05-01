@@ -539,7 +539,7 @@ func (c *Client) ExtractInvoiceData(ctx context.Context, png []byte, vendor stri
 }
 
 // VerifyLineExpected is one line the caller expects to find on the invoice.
-// Matches the shape of p21.POLine but kept separate so aiclass has no p21 dep.
+// Matches the shape of erp.POLine but kept separate so aiclass has no erp dep.
 type VerifyLineExpected struct {
 	LineNo      int     `json:"line_no"`
 	ItemID      string  `json:"item_id"`

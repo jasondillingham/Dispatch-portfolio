@@ -2,7 +2,7 @@
 // pool when a PO is known) → tier-1/2/3 attempts → verifyInvoice (preferred
 // path: confirm the PO's expected lines against the invoice image) →
 // processFallbackJob (tier-4 escalation, drained by fallback pool). openExtract
-// is the legacy "no P21 PO lines" fallback that produces an InvoiceData
+// is the legacy "no ERP PO lines" fallback that produces an InvoiceData
 // snapshot without recon. processExtractionResult writes the final verdict +
 // auto-blocker categories.
 
@@ -24,7 +24,7 @@ import (
 	"dispatch/internal/blobstore"
 	"dispatch/internal/cache"
 	"dispatch/internal/graph"
-	"dispatch/internal/p21"
+	"dispatch/internal/erp"
 	"dispatch/internal/pdftext"
 	"dispatch/internal/recon"
 	"dispatch/internal/vendors"
@@ -35,7 +35,7 @@ import (
 // invoice reconciliation, and caches the result. The primary path is
 // VerifyAgainstPO — given the PO's expected lines, the AI confirms each one
 // on the invoice image (much higher accuracy than open-ended extraction).
-// ExtractInvoiceData remains as the fallback when P21 has no PO lines.
+// ExtractInvoiceData remains as the fallback when the ERP has no PO lines.
 //
 // Called only when we already have a resolved PO. Deliberately best-effort:
 // the outer loop has already committed the vendor/buyer tags to Outlook.
@@ -44,7 +44,7 @@ import (
 // Rescans pass minTier=lastTier+1 so each rescan attempt actually tries a
 // different approach instead of re-running the tier that already produced
 // a bad verdict.
-func extractInvoice(cacheDB *cache.Cache, gc *graph.Client, vc, fallbackVC, paddleVC *aiclass.Client, fallbackJobs chan fallbackJob, p21c *p21.Client, blob *blobstore.Store, mailbox string, m graph.Message, poNo int64, currentCats []string, minTier int, slot int) {
+func extractInvoice(cacheDB *cache.Cache, gc *graph.Client, vc, fallbackVC, paddleVC *aiclass.Client, fallbackJobs chan fallbackJob, erpc *erp.Client, blob *blobstore.Store, mailbox string, m graph.Message, poNo int64, currentCats []string, minTier int, slot int) {
 	start := time.Now()
 	storeErr := func(msg string) {
 		storeExtractionErr(cacheDB, mailbox, m, vc, poNo, msg, start)
@@ -112,11 +112,11 @@ func extractInvoice(cacheDB *cache.Cache, gc *graph.Client, vc, fallbackVC, padd
 		}
 	}
 
-	// Fetch P21 PO lines up front. If we have them, take the verify path;
+	// Fetch the ERP PO lines up front. If we have them, take the verify path;
 	// otherwise fall back to open-ended extraction.
-	p21Ctx, p21Cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	poLines, _ := p21c.ListPOLines(p21Ctx, poNo)
-	p21Cancel()
+	erpCtx, erpCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	poLines, _ := erpc.ListPOLines(erpCtx, poNo)
+	erpCancel()
 
 	// If rescan forced us to tier 3+, pdfText stays empty → verify/openExtract
 	// will skip their text-first attempts and go straight to vision.
@@ -134,7 +134,7 @@ func extractInvoice(cacheDB *cache.Cache, gc *graph.Client, vc, fallbackVC, padd
 		verifyInvoice(cacheDB, gc, vc, fallbackVC, fallbackJobs, mailbox, m, poNo, pdfName, pdfSha, pdfText, textSource, png, poLines, start, currentCats, minTier, slot)
 		return
 	}
-	// Fallback: no P21 PO lines (PO not found or empty) → open-ended extraction.
+	// Fallback: no the ERP PO lines (PO not found or empty) → open-ended extraction.
 	openExtract(cacheDB, vc, mailbox, m, poNo, pdfName, pdfText, textSource, png, start, vendorFromCategories(currentCats))
 }
 
@@ -146,7 +146,7 @@ func extractInvoice(cacheDB *cache.Cache, gc *graph.Client, vc, fallbackVC, padd
 // fallbackJob and return — the main worker moves on immediately. A dedicated
 // fallback pool drains the queue; its writes happen later, overwriting any
 // cached primary verdict.
-func verifyInvoice(cacheDB *cache.Cache, gc *graph.Client, vc, fallbackVC *aiclass.Client, fallbackJobs chan fallbackJob, mailbox string, m graph.Message, poNo int64, pdfName, pdfSha, pdfText, textSource string, png []byte, poLines []p21.POLine, start time.Time, currentCats []string, minTier int, slot int) {
+func verifyInvoice(cacheDB *cache.Cache, gc *graph.Client, vc, fallbackVC *aiclass.Client, fallbackJobs chan fallbackJob, mailbox string, m graph.Message, poNo int64, pdfName, pdfSha, pdfText, textSource string, png []byte, poLines []erp.POLine, start time.Time, currentCats []string, minTier int, slot int) {
 	storeErr := func(msg string) {
 		storeExtractionErr(cacheDB, mailbox, m, vc, poNo, msg, start)
 	}
@@ -273,14 +273,14 @@ func verifyInvoice(cacheDB *cache.Cache, gc *graph.Client, vc, fallbackVC *aicla
 // InvoiceData, run recon, persist, auto-blocker. Called from both the main
 // worker (when no escalation) and the fallback pool (when escalation
 // completed). Idempotent on the extraction row — second call just overwrites.
-func processExtractionResult(cacheDB *cache.Cache, gc *graph.Client, mailbox string, m graph.Message, poNo int64, pdfName string, poLines []p21.POLine, v *aiclass.VerifyResult, currentCats []string, usedModel string, start time.Time) {
+func processExtractionResult(cacheDB *cache.Cache, gc *graph.Client, mailbox string, m graph.Message, poNo int64, pdfName string, poLines []erp.POLine, v *aiclass.VerifyResult, currentCats []string, usedModel string, start time.Time) {
 	cached := &cache.InvoiceData{
 		PONumber:      fmt.Sprintf("%d", poNo),
 		InvoiceNumber: v.InvoiceNumber,
 		InvoiceDate:   v.InvoiceDate,
 		InvoiceTotal:  v.InvoiceTotalObserved,
 	}
-	byLineNo := map[int]*p21.POLine{}
+	byLineNo := map[int]*erp.POLine{}
 	for i := range poLines {
 		byLineNo[poLines[i].LineNo] = &poLines[i]
 	}
@@ -564,7 +564,7 @@ func sameCats(a, b []string) bool {
 	return true
 }
 
-// openExtract is the legacy open-ended extraction fallback, used when P21
+// openExtract is the legacy open-ended extraction fallback, used when the ERP
 // has no po_line data for the claimed PO (e.g., PO was never entered or
 // invoice references a non-existent PO). Less reliable than verify but better
 // than nothing — produces an InvoiceData snapshot for the UI with no recon.
@@ -614,13 +614,13 @@ func openExtract(cacheDB *cache.Cache, vc *aiclass.Client, mailbox string, m gra
 			Qty: l.Qty, UnitPrice: l.UnitPrice, Extended: l.Extended,
 		})
 	}
-	// openExtract couldn't reconcile (no PO lines in P21), so always flag for rescan —
-	// either P21 gets the PO entered later and a rescan succeeds, or a clerk reviews.
+	// openExtract couldn't reconcile (no PO lines in the ERP), so always flag for rescan —
+	// either the ERP gets the PO entered later and a rescan succeeds, or a clerk reviews.
 	if err := cacheDB.StoreInvoiceExtraction(storeCtx, mailbox, m.ID, usedModel, poNo, cached, "", time.Since(start), true); err != nil {
 		fmt.Printf("           extract-cache store failed: %v\n", err)
 		return
 	}
-	fmt.Printf("           extract (no PO in P21, flagged for rescan): %q → %d lines, total=%.2f in %s [%s]\n",
+	fmt.Printf("           extract (no PO in the ERP, flagged for rescan): %q → %d lines, total=%.2f in %s [%s]\n",
 		pdfName, len(cached.Lines), cached.InvoiceTotal, time.Since(start).Round(time.Second), usedModel)
 }
 
@@ -639,15 +639,15 @@ func matchBadgeFor(label string, fallback vendors.MatchType) string {
 	return matchBadge(fallback)
 }
 
-// filterPOsValidInP21 returns only the PO numbers that actually exist in P21's
+// filterPOsValidInERP returns only the PO numbers that actually exist in the ERP's
 // po_hdr table. Called after PDF/AI extraction produces candidates; prevents
 // the worker from tagging a message with a vendor's internal reference number
 // that happens to be 7 digits. 2-second per-PO timeout.
-func filterPOsValidInP21(p21c *p21.Client, candidates []int64) []int64 {
+func filterPOsValidInERP(erpc *erp.Client, candidates []int64) []int64 {
 	out := make([]int64, 0, len(candidates))
 	for _, po := range candidates {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		info, err := p21c.LookupPO(ctx, po)
+		info, err := erpc.LookupPO(ctx, po)
 		cancel()
 		if err == nil && info != nil {
 			out = append(out, po)

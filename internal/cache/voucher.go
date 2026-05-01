@@ -1,6 +1,6 @@
-// Package cache — voucher subsystem: P21 voucher status sync per extraction
+// Package cache — voucher subsystem: the ERP voucher status sync per extraction
 // row, plus the Done-vs-unposted reconciliation helper that surfaces clerk-set
-// "Done" categories where P21 disagrees.
+// "Done" categories where the ERP disagrees.
 
 package cache
 
@@ -11,8 +11,8 @@ import (
 )
 
 
-// VoucherInfo is what the P21 sync writes back to cache per extraction.
-// Zero values are valid: Status="unposted" means P21 has no matching apinv_hdr
+// VoucherInfo is what the the ERP sync writes back to cache per extraction.
+// Zero values are valid: Status="unposted" means the ERP has no matching apinv_hdr
 // row yet; Status="posted" means a voucher exists but isn't paid in full.
 type VoucherInfo struct {
 	VoucherNo     string
@@ -23,17 +23,17 @@ type VoucherInfo struct {
 	CheckNo       string
 }
 
-// P21SyncCandidate is one row the sync loop needs to look up in P21.
-type P21SyncCandidate struct {
+// ERPSyncCandidate is one row the sync loop needs to look up in the ERP.
+type ERPSyncCandidate struct {
 	MessageID     string
 	PONo          int64
 	InvoiceNumber string
 }
 
-// ListP21SyncCandidates returns extractions that have both po_no and an
-// invoice_number and haven't been synced with P21 recently (or ever). Limited
+// ListERPSyncCandidates returns extractions that have both po_no and an
+// invoice_number and haven't been synced with the ERP recently (or ever). Limited
 // to reasonably recent messages — old vouchers rarely change state.
-func (c *Cache) ListP21SyncCandidates(ctx context.Context, mailbox string, staleBefore time.Time, limit int) ([]P21SyncCandidate, error) {
+func (c *Cache) ListERPSyncCandidates(ctx context.Context, mailbox string, staleBefore time.Time, limit int) ([]ERPSyncCandidate, error) {
 	rows, err := c.db.QueryContext(ctx, `
 		SELECT e.message_id, e.po_no, json_extract(e.invoice_data, '$.invoice_number')
 		FROM invoice_extractions e
@@ -42,19 +42,19 @@ func (c *Cache) ListP21SyncCandidates(ctx context.Context, mailbox string, stale
 		  AND e.invoice_data IS NOT NULL
 		  AND json_extract(e.invoice_data, '$.invoice_number') IS NOT NULL
 		  AND json_extract(e.invoice_data, '$.invoice_number') != ''
-		  AND (e.last_p21_sync_at IS NULL OR e.last_p21_sync_at < ?)
+		  AND (e.last_erp_sync_at IS NULL OR e.last_erp_sync_at < ?)
 		  AND e.pay_status IS NOT 'paid'
-		ORDER BY e.last_p21_sync_at IS NOT NULL, e.last_p21_sync_at ASC
+		ORDER BY e.last_erp_sync_at IS NOT NULL, e.last_erp_sync_at ASC
 		LIMIT ?
 	`, mailbox, staleBefore.UTC(), limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []P21SyncCandidate
+	var out []ERPSyncCandidate
 	for rows.Next() {
 		var (
-			c    P21SyncCandidate
+			c    ERPSyncCandidate
 			poNo sql.NullInt64
 			inv  sql.NullString
 		)
@@ -72,8 +72,8 @@ func (c *Cache) ListP21SyncCandidates(ctx context.Context, mailbox string, stale
 	return out, rows.Err()
 }
 
-// SetVoucherInfo writes a P21 sync result back onto an extraction row. Called
-// once per candidate after the P21 query. For not-found vouchers, pass
+// SetVoucherInfo writes a the ERP sync result back onto an extraction row. Called
+// once per candidate after the the ERP query. For not-found vouchers, pass
 // Status="unposted" with zero-value fields.
 func (c *Cache) SetVoucherInfo(ctx context.Context, mailbox, messageID string, info VoucherInfo) error {
 	now := time.Now().UTC()
@@ -101,7 +101,7 @@ func (c *Cache) SetVoucherInfo(ctx context.Context, mailbox, messageID string, i
 	_, err := c.db.ExecContext(ctx, `
 		UPDATE invoice_extractions
 		SET voucher_no = ?, pay_status = ?, posted_at = ?, paid_at = ?,
-		    invoice_amount = ?, check_no = ?, last_p21_sync_at = ?
+		    invoice_amount = ?, check_no = ?, last_erp_sync_at = ?
 		WHERE mailbox = ? AND message_id = ?
 	`, voucherNo, status, postedAt, paidAt, invAmt, checkNo, now, mailbox, messageID)
 	return err
@@ -121,7 +121,7 @@ func (c *Cache) GetVoucherInfo(ctx context.Context, mailbox, messageID string) (
 		lastAt  sql.NullTime
 	)
 	err := c.db.QueryRowContext(ctx, `
-		SELECT voucher_no, pay_status, posted_at, paid_at, invoice_amount, check_no, last_p21_sync_at
+		SELECT voucher_no, pay_status, posted_at, paid_at, invoice_amount, check_no, last_erp_sync_at
 		FROM invoice_extractions
 		WHERE mailbox = ? AND message_id = ?
 	`, mailbox, messageID).Scan(&voucher, &status, &posted, &paid, &invAmt, &check, &lastAt)
@@ -157,11 +157,11 @@ func (c *Cache) GetVoucherInfo(ctx context.Context, mailbox, messageID string) (
 }
 
 // ListDoneUnpostedConflicts returns message IDs where the Outlook category
-// includes "Status: Done" but the P21 voucher status came back "unposted."
+// includes "Status: Done" but the the ERP voucher status came back "unposted."
 // Two ways this can happen:
 //   - Legacy: a clerk hit Done before posting was wired (or before the
 //     system-derived-Done switch).
-//   - Drift: the voucher was deleted/reversed in P21 after Done was set.
+//   - Drift: the voucher was deleted/reversed in the ERP after Done was set.
 // In both cases the contradiction is explicit and we can clear Status:Done
 // safely. (Empty pay_status is *not* included — that means we never tried
 // to look it up, which is a different signal.)

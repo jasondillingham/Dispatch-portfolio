@@ -35,7 +35,7 @@ import (
 	"dispatch/internal/blobstore"
 	"dispatch/internal/cache"
 	"dispatch/internal/graph"
-	"dispatch/internal/p21"
+	"dispatch/internal/erp"
 	"dispatch/internal/recon"
 	dispatchsync "dispatch/internal/sync"
 	"dispatch/internal/ui"
@@ -108,7 +108,7 @@ type server struct {
 	gc                *graph.Client
 	cache             *cache.Cache
 	syncer            *dispatchsync.Syncer
-	p21               *p21.Client // nil when voucher sync is disabled
+	erp               *erp.Client // nil when voucher sync is disabled
 	tmpl              *template.Template
 	mailbox           string
 	user              string
@@ -131,7 +131,7 @@ type pageData struct {
 	Mailbox          string
 	User             string // effective user — equals impersonated ID when active, else auth user
 	AuthUser         string // always the authenticated admin (for the "viewing as ___" banner)
-	APUsers          []p21.APUser // populates the impersonate dropdown
+	APUsers          []erp.APUser // populates the impersonate dropdown
 	Impersonating    bool
 	ImpersonatedName string // display name of impersonated user (e.g., "the AP pilot user")
 	Active           ui.Filter
@@ -314,7 +314,7 @@ func main() {
 	cachePath := flag.String("cache", "", "SQLite cache path (default: ~/.dispatch/cache.db)")
 	addr := flag.String("addr", ":8085", "listen address")
 	mssqlConfig := flag.String("mssql", "", "path to mssql_config.json (default: search standard locations); empty disables voucher sync")
-	voucherSyncInterval := flag.Duration("voucher-sync", 10*time.Minute, "how often to poll P21 for voucher status")
+	voucherSyncInterval := flag.Duration("voucher-sync", 10*time.Minute, "how often to poll the ERP for voucher status")
 	primaryURLs := flag.String("primary-urls",
 		"http://<gpu-host-1>:11434",
 		"comma-sep primary vision endpoints (for queue page health display). "+
@@ -602,25 +602,25 @@ func main() {
 		}()
 	}
 
-	// Optional: P21 voucher sync. Polls apinv_hdr for extractions with both a
-	// PO and an invoice_number. Read-only — never writes to P21. Updates cache
+	// Optional: the ERP voucher sync. Polls apinv_hdr for extractions with both a
+	// PO and an invoice_number. Read-only — never writes to the ERP. Updates cache
 	// with voucher_no + pay_status + check info so the UI can surface "still
 	// needs vouchering" vs "paid and closed".
 	if *mssqlConfig != "" || envHasMSSQL() {
-		p21Client, err := p21.New(*mssqlConfig)
+		erpClient, err := erp.New(*mssqlConfig)
 		if err != nil {
-			log.Printf("voucher sync disabled (p21 open failed): %v", err)
+			log.Printf("voucher sync disabled (erp open failed): %v", err)
 		} else {
 			log.Printf("voucher sync enabled, interval=%s", *voucherSyncInterval)
-			s.p21 = p21Client
-			go runVoucherSync(p21Client, c, gc, *mailbox, *voucherSyncInterval)
+			s.erp = erpClient
+			go runVoucherSync(erpClient, c, gc, *mailbox, *voucherSyncInterval)
 		}
 	} else {
 		log.Printf("voucher sync disabled (no -mssql config)")
 	}
 
 	// Follow-up sweeper: revives messages that have been Hold'd past their
-	// per-reason follow-up window (see handleAPHold). Independent of P21 —
+	// per-reason follow-up window (see handleAPHold). Independent of the ERP —
 	// always runs as long as we have cache + Graph access.
 	log.Printf("followup sweep enabled, interval=%s", followupSweepInterval)
 	go runFollowupSweep(c, gc, *mailbox)
@@ -1337,7 +1337,7 @@ func (s *server) handleReview(w http.ResponseWriter, r *http.Request) {
 // Power tools (rotation, manual entry, reclassify) live behind a "More" menu
 // that the AP-mode template renders collapsed by default.
 //
-// Mode detection (future): if effectiveUser is in the P21 AP-Clerk role, the
+// Mode detection (future): if effectiveUser is in the the ERP AP-Clerk role, the
 // admin / handler will redirect to /ap. For now everyone can hit /ap directly
 // for testing.
 // =====================================================================
@@ -1361,9 +1361,9 @@ func (s *server) hydrateChrome(r *http.Request, data *pageData) {
 		data.Impersonating = true
 		// Best-effort: look up the display name from the AP user list.
 		// Cached, so this is cheap.
-		if s.p21 != nil {
+		if s.erp != nil {
 			ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
-			users, err := s.p21.ListAPUsers(ctx)
+			users, err := s.erp.ListAPUsers(ctx)
 			cancel()
 			if err == nil {
 				cur := s.impersonatedID(r)
@@ -1378,16 +1378,16 @@ func (s *server) hydrateChrome(r *http.Request, data *pageData) {
 	}
 	// Always populate the AP user list — the dropdown shows even when not
 	// impersonating, so the admin can pick someone.
-	if s.p21 != nil && !data.Impersonating {
+	if s.erp != nil && !data.Impersonating {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
-		if users, err := s.p21.ListAPUsers(ctx); err == nil {
+		if users, err := s.erp.ListAPUsers(ctx); err == nil {
 			data.APUsers = users
 		}
 		cancel()
 	}
 }
 
-// handleImpersonateSet sets the impersonation cookie to a P21 AP-user ID and
+// handleImpersonateSet sets the impersonation cookie to a the ERP AP-user ID and
 // redirects home. Validates against the live AP user list so a typo or
 // non-AP id silently bounces back. 8h cookie life — survives a workday but
 // expires overnight so the next day starts as the real user.
@@ -1403,12 +1403,12 @@ func (s *server) handleImpersonateSet(w http.ResponseWriter, r *http.Request) {
 	}
 	// Verify the target is a current AP user — silent no-op on mismatch so
 	// nobody can drop arbitrary cookie values via crafted form posts.
-	if s.p21 == nil {
-		http.Error(w, "p21 not configured", http.StatusServiceUnavailable)
+	if s.erp == nil {
+		http.Error(w, "erp not configured", http.StatusServiceUnavailable)
 		return
 	}
 	listCtx, listCancel := context.WithTimeout(r.Context(), 3*time.Second)
-	users, err := s.p21.ListAPUsers(listCtx)
+	users, err := s.erp.ListAPUsers(listCtx)
 	listCancel()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
@@ -1757,7 +1757,7 @@ type endpointInfo struct {
 // modelStats summarizes extraction outcomes for one model tag. Used by the
 // queue page's Model Performance card so the operator can see which
 // tier/model pulls its weight — clean match rate is the most honest metric
-// because it's the full end-to-end test (extraction + P21 reconciliation).
+// because it's the full end-to-end test (extraction + the ERP reconciliation).
 type modelStats struct {
 	Model         string  // raw model column value (includes text(pdftotext):... prefixes)
 	Total         int     // extractions produced by this model
@@ -2461,7 +2461,7 @@ func sameOriginRequest(r *http.Request) bool {
 }
 
 // envHasMSSQL reports whether the mssql config is discoverable via environment
-// or the standard search paths p21.New checks. Used to auto-enable voucher
+// or the standard search paths erp.New checks. Used to auto-enable voucher
 // sync when the caller didn't pass -mssql explicitly but a config exists.
 func envHasMSSQL() bool {
 	if os.Getenv("MSSQL_CONFIG_PATH") != "" {
@@ -2482,7 +2482,7 @@ func envHasMSSQL() bool {
 // with model="manual:<user>" so the rest of the pipeline (recon, voucher
 // sync, system-derived Done) treats it like any other extraction.
 //
-// Optional voucher_no field: if the clerk just posted in P21 and knows the
+// Optional voucher_no field: if the clerk just posted in the ERP and knows the
 // voucher number, we skip the 10-min lookup wait and flip Status:Done
 // immediately. Without voucher_no, the row enters the queue as Status:New
 // and the next voucher sync will find it.
@@ -2542,7 +2542,7 @@ func (s *server) handleManualEntry(w http.ResponseWriter, r *http.Request) {
 	}
 	storeCancel()
 
-	// If voucher_no provided, the clerk has already posted in P21 — flip
+	// If voucher_no provided, the clerk has already posted in the ERP — flip
 	// pay_status + Status:Done so the row exits the queue immediately.
 	if voucherNo != "" {
 		info := cache.VoucherInfo{
@@ -2631,14 +2631,14 @@ func (s *server) handleAskPreview(w http.ResponseWriter, r *http.Request) {
 	case "buyer":
 		if vm.Buyer == "" {
 			data.NoEmail = "no buyer assigned to this PO"
-		} else if s.p21 == nil {
-			data.NoEmail = "P21 not configured — can't look up buyer email"
+		} else if s.erp == nil {
+			data.NoEmail = "the ERP not configured — can't look up buyer email"
 		} else {
 			lookCtx, lookCancel := context.WithTimeout(r.Context(), 2*time.Second)
-			email, _ := s.p21.LookupUserEmail(lookCtx, vm.Buyer)
+			email, _ := s.erp.LookupUserEmail(lookCtx, vm.Buyer)
 			lookCancel()
 			if email == "" {
-				data.NoEmail = "no email on file for " + vm.Buyer + " in P21"
+				data.NoEmail = "no email on file for " + vm.Buyer + " in the ERP"
 			} else {
 				data.To = email
 				data.ToName = vm.Buyer

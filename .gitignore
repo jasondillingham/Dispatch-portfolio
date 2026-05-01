@@ -7,8 +7,8 @@ unmatched*.csv
 /dispatch
 /category-test
 
-# vendor data files — contain real vendor contacts + P21 IDs, keep local only.
-# Regenerated from P21 by the worker's vendor-refresh path.
+# vendor data files — contain real vendor contacts + the ERP IDs, keep local only.
+# Regenerated from the ERP by the worker's vendor-refresh path.
 data/
 
 # macOS + runtime noise

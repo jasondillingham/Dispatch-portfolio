@@ -1,7 +1,7 @@
-// Package recon reconciles an AI-extracted invoice against a P21 PO.
+// Package recon reconciles an AI-extracted invoice against a the ERP PO.
 //
 // Line-matching is fuzzy on item_id because vendors drop our brand prefix
-// (P21 stores "DEL T14235-BL", vendor invoice shows "T14235-BL"). Qty and
+// (the ERP stores "DEL T14235-BL", vendor invoice shows "T14235-BL"). Qty and
 // price comparisons are exact — per the author, price tolerance is exact-penny.
 //
 // Output is pure data; rendering lives in the web template.
@@ -13,7 +13,7 @@ import (
 
 	"dispatch/internal/aiclass"
 	"dispatch/internal/cache"
-	"dispatch/internal/p21"
+	"dispatch/internal/erp"
 )
 
 // PriceEpsilon is the max absolute difference for a price to count as
@@ -21,7 +21,7 @@ import (
 // doesn't trip exact-penny comparisons. the author approved exact-penny.
 const PriceEpsilon = 0.005
 
-// QtyEpsilon is the max abs diff for quantity matching. P21 qty_ordered
+// QtyEpsilon is the max abs diff for quantity matching. the ERP qty_ordered
 // is decimal (can be fractional for weight-based items), so use a very
 // small tolerance for floating-point sanity.
 const QtyEpsilon = 0.001
@@ -54,7 +54,7 @@ func IsFeeVerdict(v Verdict) bool {
 // and PO line (either may be nil for orphans), plus the verdict.
 type LinePair struct {
 	Invoice *cache.InvoiceLine `json:"invoice,omitempty"`
-	PO      *p21.POLine        `json:"po,omitempty"`
+	PO      *erp.POLine        `json:"po,omitempty"`
 	Verdict Verdict            `json:"verdict"`
 	Note    string             `json:"note,omitempty"`
 }
@@ -84,9 +84,9 @@ type Reconciliation struct {
 }
 
 // Compare runs the reconciliation. Pass both the AI-extracted invoice and the
-// P21 PO lines; returns a Reconciliation with one LinePair per PO-or-invoice
+// the ERP PO lines; returns a Reconciliation with one LinePair per PO-or-invoice
 // line (both, or either alone for orphans).
-func Compare(poNo int64, invoice *cache.InvoiceData, poLines []p21.POLine) Reconciliation {
+func Compare(poNo int64, invoice *cache.InvoiceData, poLines []erp.POLine) Reconciliation {
 	r := Reconciliation{PONo: poNo, Lines: []LinePair{}}
 	if invoice != nil {
 		r.InvoiceTotal = invoice.InvoiceTotal
@@ -247,7 +247,7 @@ func containsAnyWord(hay string, needles ...string) bool {
 // Returns (-1, 0) if no plausible candidate. Skips PO lines already used.
 // Score is a rough quality signal: higher = better; caller doesn't need
 // the number, just uses it to reject zero-score matches.
-func findBestPOMatch(inv *cache.InvoiceLine, poLines []p21.POLine, used []bool) (int, int) {
+func findBestPOMatch(inv *cache.InvoiceLine, poLines []erp.POLine, used []bool) (int, int) {
 	invItem := normalizeItemID(inv.ItemID)
 	invDesc := strings.ToLower(inv.Description)
 
@@ -294,7 +294,7 @@ func findBestPOMatch(inv *cache.InvoiceLine, poLines []p21.POLine, used []bool) 
 // sees on the invoice, so we don't need the fuzzy item-ID matching that
 // Compare() uses. This path is called when the worker has a resolved PO +
 // PDF and uses VerifyAgainstPO instead of open-ended extraction.
-func FromVerifyResult(poNo int64, v *aiclass.VerifyResult, poLines []p21.POLine) Reconciliation {
+func FromVerifyResult(poNo int64, v *aiclass.VerifyResult, poLines []erp.POLine) Reconciliation {
 	r := Reconciliation{PONo: poNo, Lines: []LinePair{}}
 	if v == nil {
 		return r
@@ -307,7 +307,7 @@ func FromVerifyResult(poNo int64, v *aiclass.VerifyResult, poLines []p21.POLine)
 	r.TotalMatch = math.Abs(r.TotalDiff) <= PriceEpsilon
 
 	// Index PO lines by line_no for verify-result lookups.
-	byLineNo := make(map[int]*p21.POLine, len(poLines))
+	byLineNo := make(map[int]*erp.POLine, len(poLines))
 	for i := range poLines {
 		byLineNo[poLines[i].LineNo] = &poLines[i]
 	}

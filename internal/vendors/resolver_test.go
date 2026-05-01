@@ -19,7 +19,7 @@ func TestBrandMatch_Acme(t *testing.T) {
 				{VendorID: "100179", VendorName: "GLOBEX B-Line Systems"},
 				{VendorID: "100397", VendorName: "Globex Lighting"},
 				{VendorID: "100426", VendorName: "Subsidiary C"},
-				{VendorID: "117816", VendorName: "Globex Marina Power & Lighting"},
+				{VendorID: "117816", VendorName: "Globex Industrial Lighting"},
 			},
 		},
 	}
@@ -101,7 +101,7 @@ func TestBrandMatch_DoesNotShadowExact(t *testing.T) {
 		ambiguousDomVendors: map[string][]Vendor{
 			"globex.test": {
 				{VendorID: "100397", VendorName: "Globex Lighting"},
-				{VendorID: "117816", VendorName: "Globex Marina Power & Lighting"},
+				{VendorID: "117816", VendorName: "Globex Industrial Lighting"},
 			},
 		},
 	}

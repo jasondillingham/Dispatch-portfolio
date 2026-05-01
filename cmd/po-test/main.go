@@ -1,4 +1,4 @@
-// po-test is a throwaway CLI for validating the P21 PO lookup path end-to-end.
+// po-test is a throwaway CLI for validating the the ERP PO lookup path end-to-end.
 // Takes one or more PO numbers on the command line, prints vendor/supplier/buyer.
 //   go run ./cmd/po-test 1235759 1234904 1233546
 package main
@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"time"
 
-	"dispatch/internal/p21"
+	"dispatch/internal/erp"
 )
 
 func main() {
@@ -21,9 +21,9 @@ func main() {
 		fmt.Fprintln(os.Stderr, "usage: po-test <po_no> [<po_no> ...]")
 		os.Exit(2)
 	}
-	c, err := p21.New("")
+	c, err := erp.New("")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "p21: %v\n", err)
+		fmt.Fprintf(os.Stderr, "erp: %v\n", err)
 		os.Exit(1)
 	}
 	defer c.Close()

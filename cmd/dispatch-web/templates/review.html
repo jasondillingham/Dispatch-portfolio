@@ -87,7 +87,7 @@
   const currentRowID = "{{rowID .M.ID}}";
 
   // Fire-and-forget voucher recheck for the message we're leaving. Lets a
-  // clerk who just entered the voucher in P21 see the prior message drop off
+  // clerk who just entered the voucher in the ERP see the prior message drop off
   // the queue on the next refresh, instead of waiting for the 10-min bulk
   // sync. keepalive=true tells the browser to complete the request even if
   // we navigate away mid-flight.

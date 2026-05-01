@@ -33,7 +33,7 @@ import (
 	"dispatch/internal/blobstore"
 	"dispatch/internal/cache"
 	"dispatch/internal/graph"
-	"dispatch/internal/p21"
+	"dispatch/internal/erp"
 	"dispatch/internal/pdftext"
 	"dispatch/internal/poscan"
 	"dispatch/internal/vendors"
@@ -119,11 +119,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("graph client: %v", err)
 	}
-	p21c, err := p21.New(*mssqlConfig)
+	erpc, err := erp.New(*mssqlConfig)
 	if err != nil {
-		log.Fatalf("p21 client: %v", err)
+		log.Fatalf("erp client: %v", err)
 	}
-	defer p21c.Close()
+	defer erpc.Close()
 
 	var aiClient *aiclass.Client
 	var visionClient *aiclass.Client
@@ -308,7 +308,7 @@ func main() {
 				for job := range extractJobsCh {
 					_ = cacheDB.SetSlotCurrent(context.Background(), "extract", slot, *mailbox, job.m.ID, "extract", job.m.Subject, "")
 					extractInvoice(cacheDB, gc, visionClient, fallbackVisionClient, paddleClient,
-						fallbackJobsCh, p21c, blobStore, *mailbox, job.m, job.poNo, job.currentCats, job.minTier, slot)
+						fallbackJobsCh, erpc, blobStore, *mailbox, job.m, job.poNo, job.currentCats, job.minTier, slot)
 					_ = cacheDB.MarkSlotCompleted(context.Background(), "extract", slot, job.m.ID)
 				}
 				_ = cacheDB.MarkSlotIdle(context.Background(), "extract", slot)
@@ -321,7 +321,7 @@ func main() {
 		dryRun:               *dryRun,
 		resolver:             resolver,
 		gc:                   gc,
-		p21c:                 p21c,
+		erpc:                 erpc,
 		aiClient:             aiClient,
 		visionClient:         visionClient,
 		fallbackVisionClient: fallbackVisionClient,
@@ -611,7 +611,7 @@ type processorDeps struct {
 	dryRun               bool
 	resolver             *vendors.Resolver
 	gc                   *graph.Client
-	p21c                 *p21.Client
+	erpc                 *erp.Client
 	aiClient             *aiclass.Client
 	visionClient         *aiclass.Client
 	fallbackVisionClient *aiclass.Client
@@ -657,7 +657,7 @@ type fallbackJob struct {
 	pdfName       string
 	pdfSha        string
 	png           []byte
-	poLines       []p21.POLine
+	poLines       []erp.POLine
 	currentCats   []string
 	primaryResult *aiclass.VerifyResult
 	primaryModel  string
@@ -758,7 +758,7 @@ func processMessage(lg *slotLogger, m graph.Message, deps *processorDeps, counte
 			// Filename-regex pass: try to extract a PO from each attachment's
 			// filename BEFORE fetching its bytes. Patterns like
 			// "PO1235840.pdf" or "Invoice_1235840.pdf" give us the PO for
-			// free. Only P21-validated numbers count — random 7-digit runs
+			// free. Only ERP-validated numbers count — random 7-digit runs
 			// are noisy so we filter downstream.
 			var filenameCandidates []int64
 			for _, a := range atts {
@@ -770,7 +770,7 @@ func processMessage(lg *slotLogger, m graph.Message, deps *processorDeps, counte
 				}
 				filenameCandidates = append(filenameCandidates, poscan.ExtractPOsFromFilename(a.Name)...)
 			}
-			if validated := filterPOsValidInP21(deps.p21c, filenameCandidates); len(validated) > 0 {
+			if validated := filterPOsValidInERP(deps.erpc, filenameCandidates); len(validated) > 0 {
 				poNos = validated
 				matchLabel = "filename"
 				lg.printf("           filename-po: found %v without opening PDF\n", validated)
@@ -802,7 +802,7 @@ func processMessage(lg *slotLogger, m graph.Message, deps *processorDeps, counte
 				if err == nil {
 					textReturnedBytes = true
 					candidates := poscan.ExtractPOs(5, text)
-					if validated := filterPOsValidInP21(deps.p21c, candidates); len(validated) > 0 {
+					if validated := filterPOsValidInERP(deps.erpc, candidates); len(validated) > 0 {
 						poNos = validated
 						matchLabel = fmt.Sprintf("pdf:%s", a.Name)
 						break
@@ -818,7 +818,7 @@ func processMessage(lg *slotLogger, m graph.Message, deps *processorDeps, counte
 				}
 				reason := "scanned image"
 				if textReturnedBytes {
-					reason = "text found but no P21-valid PO"
+					reason = "text found but no ERP-valid PO"
 				}
 				lg.printf("           pdf %q: %s, trying AI vision...\n", a.Name, reason)
 				_ = deps.cacheDB.SetSlotCurrent(context.Background(), "sort", lg.slot, deps.mailbox, m.ID, "ai-vision", m.Subject, vendorName)
@@ -835,7 +835,7 @@ func processMessage(lg *slotLogger, m graph.Message, deps *processorDeps, counte
 					continue
 				}
 				lg.printf("           ai vision %q: POs=%v notes=%q\n", a.Name, visionPOs, notes)
-				if validated := filterPOsValidInP21(deps.p21c, visionPOs); len(validated) > 0 {
+				if validated := filterPOsValidInERP(deps.erpc, visionPOs); len(validated) > 0 {
 					poNos = validated
 					matchLabel = fmt.Sprintf("ai-pdf:%s", a.Name)
 					break
@@ -848,7 +848,7 @@ func processMessage(lg *slotLogger, m graph.Message, deps *processorDeps, counte
 	pdfLabel := matchLabel
 	for _, po := range poNos {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		info, err := deps.p21c.LookupPO(ctx, po)
+		info, err := deps.erpc.LookupPO(ctx, po)
 		cancel()
 		if err != nil {
 			lg.printf("           po %d lookup error: %v\n", po, err)
@@ -960,7 +960,7 @@ func processMessage(lg *slotLogger, m graph.Message, deps *processorDeps, counte
 				}
 			} else {
 				// Legacy inline path (extractConcurrency=0). Same as pre-split.
-				extractInvoice(deps.cacheDB, deps.gc, deps.visionClient, deps.fallbackVisionClient, deps.paddleClient, deps.fallbackJobs, deps.p21c, deps.blobStore, deps.mailbox, m, poNos[0], newCats, 0, lg.slot)
+				extractInvoice(deps.cacheDB, deps.gc, deps.visionClient, deps.fallbackVisionClient, deps.paddleClient, deps.fallbackJobs, deps.erpc, deps.blobStore, deps.mailbox, m, poNos[0], newCats, 0, lg.slot)
 			}
 		}
 	}
@@ -1079,7 +1079,7 @@ func mergeCategories(existing []string, vendor, buyer, kind string) []string {
 
 // sanitizeCategoryValue drops characters Outlook's Master Category List rejects.
 // Commas are the known offender (Graph returns ErrorPropertyUpdate 400 on PATCH).
-// P21 vendor names like "HyLite LED LLC, Arva" or "JMP Equipment Company, LLC"
+// the ERP vendor names like "HyLite LED LLC, Arva" or "JMP Equipment Company, LLC"
 // would otherwise fail every run. Collapses the resulting double-spaces.
 func sanitizeCategoryValue(s string) string {
 	s = strings.ReplaceAll(s, ",", "")

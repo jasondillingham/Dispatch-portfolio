@@ -87,7 +87,7 @@
         <span class="pill buyer">{{.M.Buyer}}</span>
       {{end}}
       {{if .M.PayStatus}}
-        <span class="pill pay-{{.M.PayStatus}}" title="{{if .M.VoucherNo}}Voucher #{{.M.VoucherNo}}{{else}}No voucher in P21 yet{{end}}">
+        <span class="pill pay-{{.M.PayStatus}}" title="{{if .M.VoucherNo}}Voucher #{{.M.VoucherNo}}{{else}}No voucher in the ERP yet{{end}}">
           {{if eq .M.PayStatus "paid"}}✓ paid{{else if eq .M.PayStatus "posted"}}▣ posted{{else}}○ unposted{{end}}
         </span>
       {{end}}

@@ -337,7 +337,7 @@
   {{else if .Extraction}}
     <div class="ap-summary ap-summary-unknown">
       <span class="ap-summary-icon">○</span>
-      <span><strong>No PO match yet</strong>We extracted the invoice but couldn't find the PO in P21. Open the More menu to enter manually.</span>
+      <span><strong>No PO match yet</strong>We extracted the invoice but couldn't find the PO in the ERP. Open the More menu to enter manually.</span>
     </div>
   {{else}}
     <div class="ap-summary ap-summary-unknown">
@@ -509,7 +509,7 @@
      reason as the decision bar: read-only peek shouldn't be able to assign
      or hold someone else's work. */}}
 {{if not .ViewAs}}
-{{/* ASSIGN PICKER — list of OTHER AP clerks pulled live from P21. */}}
+{{/* ASSIGN PICKER — list of OTHER AP clerks pulled live from the ERP. */}}
 <div class="ap-picker ap-assign-picker" id="ap-assign-picker">
   <h3>Hand off to:</h3>
   {{if .AssignTargets}}

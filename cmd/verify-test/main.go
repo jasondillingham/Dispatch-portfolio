@@ -5,7 +5,7 @@
 //   verify-test -po 1235306
 //   verify-test -message <graph-id>
 //
-// Prints: expected PO lines (P21 truth), AI extraction result, AI verification
+// Prints: expected PO lines (ERP truth), AI extraction result, AI verification
 // result, and a brief accuracy summary.
 package main
 
@@ -22,7 +22,7 @@ import (
 	"dispatch/internal/aiclass"
 	"dispatch/internal/cache"
 	"dispatch/internal/graph"
-	"dispatch/internal/p21"
+	"dispatch/internal/erp"
 	"dispatch/internal/pdftext"
 )
 
@@ -44,9 +44,9 @@ func main() {
 	defer c.Close()
 	gc, err := graph.NewClient()
 	must(err)
-	p21c, err := p21.New("")
+	erpc, err := erp.New("")
 	must(err)
-	defer p21c.Close()
+	defer erpc.Close()
 
 	ai := aiclass.NewClient(*urlFlag, *modelFlag)
 
@@ -71,13 +71,13 @@ func main() {
 		log.Fatalf("could not determine PO for message %s", msgID)
 	}
 
-	// Ground truth: P21 PO lines.
-	ctxP21, cancelP21 := context.WithTimeout(ctx, 10*time.Second)
-	poLines, err := p21c.ListPOLines(ctxP21, poNo)
-	cancelP21()
+	// Ground truth: the ERP PO lines.
+	ctxERP, cancelERP := context.WithTimeout(ctx, 10*time.Second)
+	poLines, err := erpc.ListPOLines(ctxERP, poNo)
+	cancelERP()
 	must(err)
 
-	fmt.Printf("=== PO %d ground truth (%d lines from P21) ===\n", poNo, len(poLines))
+	fmt.Printf("=== PO %d ground truth (%d lines from the ERP) ===\n", poNo, len(poLines))
 	for _, l := range poLines {
 		fmt.Printf("  %2d  %-25s  qty %5g  $%8.4f  ext $%10.2f  %s\n",
 			l.LineNo, l.ItemID, l.QtyOrdered, l.UnitPrice, l.Extended, l.Description)

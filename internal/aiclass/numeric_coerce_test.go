@@ -88,7 +88,7 @@ func TestCoerceStringNums_NullFallback(t *testing.T) {
 // TestCoerceStringNums_MFTRecovery documents the Resideo case end-to-end:
 // a cable line with "1940.00000 MFT" as unit_price now parses successfully
 // with the value 1940 (per-MFT pricing — recon will reconcile correctly
-// because P21 PO lines also store per-MFT for cable items).
+// because the ERP PO lines also store per-MFT for cable items).
 func TestCoerceStringNums_MFTRecovery(t *testing.T) {
 	in := `{"item_id": "400-01XHHW-AL-BN", "qty": 100, "unit_price": "1940.00000 MFT", "extended": 19400}`
 	out := coerceStringNums(in)

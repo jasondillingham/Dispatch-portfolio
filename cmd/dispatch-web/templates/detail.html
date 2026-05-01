@@ -31,7 +31,7 @@
   <div class="detail-status-bar">
     {{if and .M.Status (ne .M.Status "New")}}<span class="pill status-{{statusSlug .M.Status}}">{{.M.Status}}</span>{{end}}
     {{range .M.Blockers}}<span class="pill blocker">{{.}}</span>{{end}}
-    {{if .M.Buyer}}<span class="pill buyer" title="P21 PO buyer">{{.M.Buyer}}</span>{{end}}
+    {{if .M.Buyer}}<span class="pill buyer" title="the ERP PO buyer">{{.M.Buyer}}</span>{{end}}
     {{if .M.Kind}}<span class="pill kind kind-{{statusSlug .M.Kind}}" title="AI classification">{{.M.Kind}}</span>{{end}}
 
     <div class="detail-actions">
@@ -127,8 +127,8 @@
   {{if and .Extraction .Extraction.Model}}
   {{with .Extraction}}
   <div class="detail-section">
-    <div class="section-label">P21 voucher</div>
-    {{/* Voucher section — reads columns the background P21 sync writes.
+    <div class="section-label">ERP voucher</div>
+    {{/* Voucher section — reads columns the background the ERP sync writes.
          Intentionally minimal: just the status and key facts; no action buttons yet. */}}
     <div style="display:flex; gap:1.25rem; align-items:baseline; font-size:.9rem;">
       <div>
@@ -392,7 +392,7 @@
        collapsed. Submitting saves a "manual:<user>" extraction so the rest
        of the pipeline (recon, voucher sync, system-derived Done) treats it
        like an AI-extracted row. Optional voucher_no skips the 10-min lookup
-       wait for clerks who just posted in P21. */}}
+       wait for clerks who just posted in the ERP. */}}
   {{$manualOpen := or (not .Extraction) (and .Extraction (or .Extraction.ErrorMsg (hasPrefix .Extraction.Model "manual:")))}}
   <details class="detail-section manual-entry-section" {{if $manualOpen}}open{{end}}>
     <summary class="section-label" style="cursor: pointer; list-style: none;">
@@ -425,8 +425,8 @@
                  value="{{if and .Extraction .Extraction.Data .Extraction.Data.InvoiceTotal}}{{money .Extraction.Data.InvoiceTotal}}{{end}}">
         </label>
         <label class="manual-grid-wide">
-          <span>Voucher # <em class="muted">(optional — fill if you just posted in P21 to mark Done immediately)</em></span>
-          <input type="text" name="voucher_no" placeholder="P21 voucher number">
+          <span>Voucher # <em class="muted">(optional — fill if you just posted in the ERP to mark Done immediately)</em></span>
+          <input type="text" name="voucher_no" placeholder="ERP voucher number">
         </label>
       </div>
       <div class="manual-actions">

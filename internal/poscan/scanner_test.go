@@ -26,7 +26,7 @@ func TestExtractPOs(t *testing.T) {
 		// on one row, value on the next row — many non-digit chars between.
 		// Requires [^\d]{0,400} window in poRe. The other numbers (842924
 		// "PO Box", 588281 "Sales Order") show up here because they match
-		// PO-ish keywords too; P21 validation downstream filters the false
+		// PO-ish keywords too; the ERP validation downstream filters the false
 		// positives. This test just asserts we CAPTURE the real PO as a
 		// candidate.
 		{"columnar invoice layout", `Remit To: Sample Industries, LLC

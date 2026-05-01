@@ -1,6 +1,6 @@
 // errors.go — split error logging so we can triage worker vs endpoint
 // failures independently. Worker errors are things the per-message pipeline
-// hits (Graph 429, PDF parse failed, P21 query timeout); endpoint errors
+// hits (Graph 429, PDF parse failed, the ERP query timeout); endpoint errors
 // are things the AI endpoints hit (HTTP 500, connection refused, Ollama
 // returned empty). Both tee to stdout so the main log stays whole.
 
@@ -26,7 +26,7 @@ var errLog *errorLoggers
 // be nil (file open failed) — we just skip the tee in that case.
 //
 // Three streams:
-//   - worker:     worker-level pipeline errors (Graph 429, PDF parse, P21 timeout)
+//   - worker:     worker-level pipeline errors (Graph 429, PDF parse, the ERP timeout)
 //   - endpoint:   per-request errors against AI endpoints (HTTP 500, conn refused)
 //   - extraction: per-message extraction failures with subject + model + error,
 //                 designed to be tail-able / grep-able when triaging a batch

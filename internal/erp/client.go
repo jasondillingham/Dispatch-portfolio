@@ -1,8 +1,8 @@
-// Package p21 is a thin MSSQL client for Dispatch's P21 lookups (PO number
+// Package erp is a thin MSSQL client for Dispatch's ERP lookups (PO number
 // → vendor, item ID → supplier, etc). Read-only. Queries are narrow and
-// targeted — we are NOT a general P21 data layer, just enough to answer
+// targeted — we are NOT a general the ERP data layer, just enough to answer
 // "who is this invoice for" from an email's contents.
-package p21
+package erp
 
 import (
 	"context"
@@ -40,10 +40,10 @@ type Client struct {
 	apUsersCached time.Time
 }
 
-// APUser is a P21 user with one of the AP role tags. Returned by ListAPUsers
+// APUser is a the ERP user with one of the AP role tags. Returned by ListAPUsers
 // for the impersonation dropdown.
 type APUser struct {
-	ID    string // canonical P21 id (e.g., "DSOWELL"); we lowercase for filter compares
+	ID    string // canonical the ERP id (e.g., "DSOWELL"); we lowercase for filter compares
 	Name  string // display name (e.g., "an AP clerk Sowell")
 	Email string
 	Role  string // "AP Clerk" or "AP Leader"
@@ -61,14 +61,14 @@ func (u APUser) FirstName() string {
 	return u.Name
 }
 
-// New connects to P21 using the config file at path (or the default search
+// New connects to the ERP using the config file at path (or the default search
 // locations if path is ""). Default search order:
-//  1. $P21_MSSQL_CONFIG
+//  1. $ERP_MSSQL_CONFIG
 //  2. ../configs/mssql_config.json  (workspace convention)
 //  3. ../../configs/mssql_config.json
 func New(path string) (*Client, error) {
 	if path == "" {
-		path = os.Getenv("P21_MSSQL_CONFIG")
+		path = os.Getenv("ERP_MSSQL_CONFIG")
 	}
 	if path == "" {
 		candidates := []string{
@@ -83,7 +83,7 @@ func New(path string) (*Client, error) {
 		}
 	}
 	if path == "" {
-		return nil, fmt.Errorf("mssql_config.json not found (set P21_MSSQL_CONFIG)")
+		return nil, fmt.Errorf("mssql_config.json not found (set ERP_MSSQL_CONFIG)")
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -97,7 +97,7 @@ func New(path string) (*Client, error) {
 	q := url.Values{}
 	q.Set("database", cfg.Database.Database)
 	q.Set("encrypt", boolStr(cfg.Database.Options.Encrypt))
-	// Internal P21 uses a self-signed cert (CN: SSL_Self_Signed_Fallback).
+	// Internal the ERP uses a self-signed cert (CN: SSL_Self_Signed_Fallback).
 	// Force trust — we're only connecting to the internal corporate network and we
 	// still want encryption on the wire; just don't validate the cert chain.
 	q.Set("trustservercertificate", "true")
@@ -112,7 +112,7 @@ func New(path string) (*Client, error) {
 		return nil, fmt.Errorf("open: %w", err)
 	}
 	// Pool sized for the worker's parallel paths: 8 sort + 4 extract +
-	// 3 fallback workers can all hit P21 concurrently (PO lookups, voucher
+	// 3 fallback workers can all hit the ERP concurrently (PO lookups, voucher
 	// status checks, AP-user list refreshes). At 4 max-open the pool would
 	// queue under load and block on connection acquisition; 12 gives room
 	// for full worker concurrency plus the web's voucher-sync goroutine.
@@ -312,7 +312,7 @@ ORDER BY date_created DESC
 	return &ap, nil
 }
 
-// LookupUserEmail returns the email_address from the P21 users table for a
+// LookupUserEmail returns the email_address from the the ERP users table for a
 // given login id. Used by the "Ask buyer" preview to populate the To: line.
 // Returns ("", nil) when the user isn't found rather than an error — the UI
 // just shows "no email on file" in that case.
@@ -336,10 +336,10 @@ func (c *Client) LookupUserEmail(ctx context.Context, userID string) (string, er
 }
 
 // apUserCacheTTL is how long ListAPUsers reuses a result before re-hitting
-// P21. New AP hires show up within this window.
+// the ERP. New AP hires show up within this window.
 const apUserCacheTTL = 5 * time.Minute
 
-// ListAPUsers returns active AP Clerk + AP Leader users from P21. Joins
+// ListAPUsers returns active AP Clerk + AP Leader users from the ERP. Joins
 // users → roles via role_uid. Filters delete_flag='N'; doesn't filter
 // active='N' because at this site the active flag isn't reliably maintained
 // (all current AP clerks have active='N' but are working). 5-min in-memory

@@ -92,8 +92,8 @@ var migrations = []migration{
 		`ALTER TABLE invoice_extractions ADD COLUMN rescan_attempts INTEGER DEFAULT 0`,
 		`CREATE INDEX IF NOT EXISTS idx_extractions_rescan ON invoice_extractions(needs_rescan) WHERE needs_rescan = 1`,
 
-		// Voucher tracking: populated by the P21 sync goroutine (read-only).
-		// last_p21_sync_at is the cadence cursor. pay_status is one of:
+		// Voucher tracking: populated by the the ERP sync goroutine (read-only).
+		// last_erp_sync_at is the cadence cursor. pay_status is one of:
 		//   "" (unsynced yet), "unposted" (no apinv_hdr row found), "posted" (found, unpaid), "paid"
 		`ALTER TABLE invoice_extractions ADD COLUMN voucher_no TEXT`,
 		`ALTER TABLE invoice_extractions ADD COLUMN pay_status TEXT`,
@@ -101,7 +101,7 @@ var migrations = []migration{
 		`ALTER TABLE invoice_extractions ADD COLUMN paid_at TIMESTAMP`,
 		`ALTER TABLE invoice_extractions ADD COLUMN invoice_amount REAL`,
 		`ALTER TABLE invoice_extractions ADD COLUMN check_no TEXT`,
-		`ALTER TABLE invoice_extractions ADD COLUMN last_p21_sync_at TIMESTAMP`,
+		`ALTER TABLE invoice_extractions ADD COLUMN last_erp_sync_at TIMESTAMP`,
 		`CREATE INDEX IF NOT EXISTS idx_extractions_pay_status ON invoice_extractions(pay_status)`,
 
 		// Message cache: mailbox contents mirrored locally so the list view
@@ -393,14 +393,14 @@ type InvoiceExtraction struct {
 	ErrorMsg    string
 	ElapsedMs   int
 
-	// Phase B additions. Cached snapshot of P21 po_line at extraction time
-	// (so recon doesn't drift silently if P21 data changes later), plus the
+	// Phase B additions. Cached snapshot of the ERP po_line at extraction time
+	// (so recon doesn't drift silently if the ERP data changes later), plus the
 	// computed per-line verdict. Opaque JSON at this layer — the recon
 	// package owns the schema.
 	POLinesJSON   string
 	ReconcileJSON string
 
-	// Voucher-tracking fields populated by the P21 sync. VoucherStatus is
+	// Voucher-tracking fields populated by the the ERP sync. VoucherStatus is
 	// empty string until first sync. Readers should null-check InvoiceAmount
 	// (zero value is valid for credit memos etc) via the status field.
 	VoucherNo            string
@@ -1025,9 +1025,9 @@ type AISummary struct {
 	AnyLineMismatch bool // recon.AnyLineMismatch
 	ErrorMsg        string
 	NeedsRescan     bool // flagged for the rescan queue (anything not a clean match)
-	PONo            int64 // resolved P21 PO number; 0 when no PO matched
-	InvoiceAmount   float64 // extracted invoice total (preferred) or P21 voucher amount; 0 when neither known
-	// Voucher fields (populated by P21 sync — empty until first sync tick)
+	PONo            int64 // resolved the ERP PO number; 0 when no PO matched
+	InvoiceAmount   float64 // extracted invoice total (preferred) or the ERP voucher amount; 0 when neither known
+	// Voucher fields (populated by the ERP sync — empty until first sync tick)
 	PayStatus       string // "" | "unposted" | "posted" | "paid"
 	VoucherNo       string
 }
@@ -1072,7 +1072,7 @@ func (c *Cache) ListAISummaryForMailbox(ctx context.Context, mailbox string) (ma
 		}
 		if dataJSON.Valid && len(dataJSON.String) > 2 {
 			s.HasExtraction = true
-			// Pull invoice_total out of the extracted JSON when the P21
+			// Pull invoice_total out of the extracted JSON when the ERP
 			// voucher amount isn't yet known. Cheap parse — every row.
 			if s.InvoiceAmount == 0 {
 				var d InvoiceData
@@ -1206,7 +1206,7 @@ func (c *Cache) ListRescanQueueRecent(ctx context.Context, mailbox string, since
 
 // ListBlockedMessages returns Status:Blocked rows that have a usable cached
 // extraction (PO + invoice data). Used by the auto-recheck pass that re-runs
-// recon against fresh P21 PO lines to see whether buyer/vendor actions have
+// recon against fresh the ERP PO lines to see whether buyer/vendor actions have
 // resolved the discrepancy. Skips rows without an invoice extraction —
 // those have no recon to recheck.
 func (c *Cache) ListBlockedMessages(ctx context.Context, mailbox string) ([]BlockedMessage, error) {
@@ -1384,7 +1384,7 @@ type ConversationPrior struct {
 	Vendor string
 	Kind   string
 	PoNo   int64  // last resolved PO in the thread (0 if never resolved)
-	Buyer  string // P21 buyer from the last PO lookup
+	Buyer  string // the ERP buyer from the last PO lookup
 }
 
 // GetConversationPrior returns the best-available prior for a

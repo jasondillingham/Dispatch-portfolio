@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"dispatch/internal/p21"
+	"dispatch/internal/erp"
 	"dispatch/internal/ui"
 
 	"github.com/go-chi/chi/v5"
@@ -110,8 +110,8 @@ type apViewData struct {
 	Counts        apCounts // for the tab bar
 	UserName      string   // for greeting ("the AP pilot user" not "ap-clerk")
 	UserID        string   // lowercase id used to filter self out of the Assign picker
-	AssignTargets []p21.APUser // other AP clerks the current user can hand off to
-	APUsers       []p21.APUser // full AP user list — drives the "view as" selector
+	AssignTargets []erp.APUser // other AP clerks the current user can hand off to
+	APUsers       []erp.APUser // full AP user list — drives the "view as" selector
 	// View-as: when set, the Todo tab is filtered to messages owned by ViewAs
 	// instead of the effective user. Read-only — Pickup/Assign/Hold buttons
 	// are hidden because the clerk isn't acting as ViewAs, just looking.
@@ -148,17 +148,17 @@ func (s *server) handleAP(w http.ResponseWriter, r *http.Request) {
 	user := s.effectiveUser(r)
 
 	// "View as" — read-only peek at another clerk's Todo. Validated against
-	// the live P21 AP-user list so a typo can't divert the filter to a
+	// the live the ERP AP-user list so a typo can't divert the filter to a
 	// random string. If view-as is set + filter is Todo, the Todo bucket
 	// shows that clerk's owned messages instead of the current user's.
 	// Other tabs (Unassigned, Waiting, Done) ignore view-as — they're
 	// shared queues anyway.
 	viewAs := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("view")))
 	viewAsName := ""
-	apUsers := []p21.APUser{}
-	if s.p21 != nil {
+	apUsers := []erp.APUser{}
+	if s.erp != nil {
 		luCtx, luCancel := context.WithTimeout(r.Context(), 1*time.Second)
-		if list, err := s.p21.ListAPUsers(luCtx); err == nil {
+		if list, err := s.erp.ListAPUsers(luCtx); err == nil {
 			apUsers = list
 			if viewAs != "" {
 				ok := false
@@ -238,8 +238,8 @@ func (s *server) handleAP(w http.ResponseWriter, r *http.Request) {
 
 	// Assign picker: list of OTHER AP clerks (excluding self). Reuses the
 	// apUsers slice already fetched above for the view-as selector — same
-	// underlying P21 query, no extra round-trip.
-	var assignTargets []p21.APUser
+	// underlying the ERP query, no extra round-trip.
+	var assignTargets []erp.APUser
 	for _, u := range apUsers {
 		if !strings.EqualFold(u.ID, user) {
 			assignTargets = append(assignTargets, u)
@@ -281,13 +281,13 @@ func apFilterLabel(f apFilter) string {
 }
 
 // apUserName resolves the display-friendly first name for the greeting.
-// Falls back to the lowercase user ID if P21 lookup fails.
+// Falls back to the lowercase user ID if the ERP lookup fails.
 func apUserName(s *server, r *http.Request, user string) string {
-	if s.p21 == nil {
+	if s.erp == nil {
 		return capitalize(user)
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 1*time.Second)
-	users, err := s.p21.ListAPUsers(ctx)
+	users, err := s.erp.ListAPUsers(ctx)
 	cancel()
 	if err != nil {
 		return capitalize(user)
@@ -303,7 +303,7 @@ func apUserName(s *server, r *http.Request, user string) string {
 // handleAPPickup is the "I'll work this one" gesture. Sets Owner to the
 // effective user and Status: In Progress, then advances to the next message.
 // Naming intentionally avoids "Approve" — the clerk isn't approving the
-// invoice content (that happens when they post the voucher in P21); they're
+// invoice content (that happens when they post the voucher in the ERP); they're
 // just picking it up off the stack to work it.
 func (s *server) handleAPPickup(w http.ResponseWriter, r *http.Request) {
 	msgID, err := decodeRowID(chi.URLParam(r, "rowID"))
@@ -331,7 +331,7 @@ func (s *server) handleAPPickup(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleAPAssign hands the message to a different AP clerk. Form field "to"
-// is the lowercase target user ID; validated against the live P21 AP-user
+// is the lowercase target user ID; validated against the live the ERP AP-user
 // list so a typo can't drop arbitrary cookie values into Owner. Sets
 // Status: In Progress so the assignee sees it as active work, not new.
 // Auto-advances the current clerk to the next message.
@@ -350,12 +350,12 @@ func (s *server) handleAPAssign(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no assignee", http.StatusBadRequest)
 		return
 	}
-	if s.p21 == nil {
-		http.Error(w, "P21 not configured — can't validate assignee", http.StatusServiceUnavailable)
+	if s.erp == nil {
+		http.Error(w, "the ERP not configured — can't validate assignee", http.StatusServiceUnavailable)
 		return
 	}
 	listCtx, listCancel := context.WithTimeout(r.Context(), 2*time.Second)
-	users, err := s.p21.ListAPUsers(listCtx)
+	users, err := s.erp.ListAPUsers(listCtx)
 	listCancel()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)

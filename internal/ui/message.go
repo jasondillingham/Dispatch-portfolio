@@ -20,7 +20,7 @@ type ViewMessage struct {
 	Received       time.Time
 	Vendor         string
 	Owner          string
-	Buyer          string // P21 PO created_by, lowercased
+	Buyer          string // the ERP PO created_by, lowercased
 	Status         string // "", "New", "In Progress", "Blocked", "Done"
 	Kind           string // AI-assigned: Invoice, Payment, Marketing, Webinar, etc.
 	Blockers       []string
@@ -43,11 +43,11 @@ type ViewMessage struct {
 	AIErrorMsg        string
 	AINeedsRescan     bool // flagged in cache as "not a clean match" — surfaced in Rescan filter
 
-	// Voucher tracking from the P21 sync. Empty until the sync ticks.
+	// Voucher tracking from the the ERP sync. Empty until the sync ticks.
 	PayStatus string // "" | "unposted" | "posted" | "paid"
 	VoucherNo string
 
-	// PONo is the resolved P21 PO number for this message's invoice. 0 when no
+	// PONo is the resolved the ERP PO number for this message's invoice. 0 when no
 	// PO matched. Populated from invoice_extractions.po_no during hydration.
 	// Used by the row template's clickable PO badge and the ?po= filter.
 	PONo int64
@@ -67,7 +67,7 @@ type ViewMessage struct {
 // surfaces the mark. Priority: error > issue > clean > pending > classified > tagged.
 //
 //	""           - worker hasn't touched this message yet
-//	"tagged"     - worker ran (Vendor/Status set) via deterministic path (regex, P21)
+//	"tagged"     - worker ran (Vendor/Status set) via deterministic path (regex, ERP lookup)
 //	"classified" - Kind: set by LLM classifier (vendor mail with no PO)
 //	"pending"    - AI extraction done, reconciliation hasn't run yet
 //	"clean"      - AI extraction + reconciliation says all matches
@@ -90,7 +90,7 @@ func (v ViewMessage) AIStatus() string {
 		return "classified"
 	}
 	// Any Status at all means the worker tagged it via a deterministic path
-	// (sender domain, PO regex, P21 lookup). That's still "processed."
+	// (sender domain, PO regex, the ERP lookup). That's still "processed."
 	if v.Status != "" {
 		return "tagged"
 	}
@@ -139,7 +139,7 @@ func (v ViewMessage) HiddenByDefault() bool {
 
 // StatusOptions lists the user-selectable Status values shown in the dropdown
 // menus. "Done" is intentionally excluded — it's now system-derived: voucher
-// sync flips Status: Done once the AP voucher is posted in P21. A clerk who
+// sync flips Status: Done once the AP voucher is posted in the ERP. A clerk who
 // finishes work without posting (write-off, vendor-cancelled) should use
 // Blocker: Won't Pay instead. See "system-derived Done" in todo.md.
 var StatusOptions = []string{"New", "In Progress", "Blocked"}
@@ -255,7 +255,7 @@ const (
 	FilterDone         Filter = "done"
 	FilterMarketing    Filter = "marketing" // AI-flagged marketing/webinar/newsletter
 	FilterPayments     Filter = "payments"  // AI-flagged payment-scheduled notifications
-	FilterUnposted     Filter = "unposted"  // extraction succeeded but no P21 voucher yet — actionable for AP
+	FilterUnposted     Filter = "unposted"  // extraction succeeded but no the ERP voucher yet — actionable for AP
 	FilterRescan       Filter = "rescan"    // AI processed but not a clean match — needs review / retry
 	FilterMatch        Filter = "match"     // invoice reconciled cleanly, safe to post
 	FilterDiscrepancy  Filter = "discrepancy" // extraction found a discrepancy (any blocker)

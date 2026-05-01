@@ -514,7 +514,7 @@
            style="width: 100%; padding: .4rem .85rem; border-radius: 999px; border: 1px solid #374151; background: #1f2937; color: #f9fafb; font-size: .85rem;">
   </form>
 
-  {{/* Impersonation: admin-only "view as" dropdown. Pulls live from P21
+  {{/* Impersonation: admin-only "view as" dropdown. Pulls live from the ERP
        (5-min cache). When active, hides the dropdown and shows the
        impersonated user instead with a one-click exit form. */}}
   {{if .Impersonating}}
@@ -572,9 +572,9 @@
     <div><span class="ai-dot ai-clean">✓</span> <strong>Match</strong> — AI compared the invoice to the PO and everything lines up.</div>
     <div><span class="ai-dot ai-issue">⚠</span> <strong>Discrepancy</strong> — AI found a price, quantity, or total mismatch. Click the row to review.</div>
     <div><span class="ai-dot ai-error">✕</span> <strong>Error</strong> — AI couldn't extract the invoice (bad PDF, timeout). Worth a manual look.</div>
-    <div><span class="ai-dot ai-pending">○</span> <strong>Pending</strong> — AI read the invoice but P21 had no PO lines to compare against.</div>
+    <div><span class="ai-dot ai-pending">○</span> <strong>Pending</strong> — AI read the invoice but the ERP had no PO lines to compare against.</div>
     <div><span class="ai-dot ai-classified">AI</span> <strong>Classified</strong> — LLM labeled the message kind (marketing, webinar, etc.); no PDF to extract.</div>
-    <div><span class="ai-dot ai-tagged">✔</span> <strong>Tagged</strong> — Dispatch processed via deterministic rules (sender domain, PO from subject, P21 lookup). No AI needed.</div>
+    <div><span class="ai-dot ai-tagged">✔</span> <strong>Tagged</strong> — Dispatch processed via deterministic rules (sender domain, PO from subject, the ERP lookup). No AI needed.</div>
   </div>
 </details>
 
@@ -759,7 +759,7 @@ function resizeEmailFrame(frame) {
     return idx >= 0 ? idx : -1;
   }
   // Async voucher recheck — fired when leaving a message, so the prior
-  // row's pay_status reflects what AP just entered in P21 without waiting
+  // row's pay_status reflects what AP just entered in the ERP without waiting
   // for the 10-min bulk sync. No-op for messages without an extraction.
   function recheckRow(row) {
     if (!row || !row.id) return;

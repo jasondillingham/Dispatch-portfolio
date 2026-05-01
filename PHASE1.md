@@ -46,9 +46,9 @@ are explicitly authorized for this work order:
   `internal/cache/`, `cmd/dispatch-web/templates/`
 - Edit `ACCURACY-LOOP.md`, `todo.md`, `CLAUDE.md`
 - Run `make staging-deploy` (cross-compiles + rsyncs to staging — safe; reverses by re-deploy)
-- Run `ssh cms@<staging-host> 'sudo systemctl restart dispatch-web'` (graceful restart)
+- Run `ssh dispatch@<staging-host> 'sudo systemctl restart dispatch-web'` (graceful restart)
 - Run read-only SQLite queries against the staging DB:
-  `ssh cms@<staging-host> 'sqlite3 -readonly /home/cms/.dispatch/cache.db "..."'`
+  `ssh dispatch@<staging-host> 'sqlite3 -readonly /home/dispatch/.dispatch/cache.db "..."'`
 - Run `git add` (specific files), `git commit`, `git push origin main`
 - Use the existing CSRF middleware (it already covers all POST routes)
 
@@ -78,8 +78,8 @@ whatever you've completed. Do not stall.
   `voucher.go`, `workers.go`, `messages.go`, `aux_tables.go`. **New verdict
   helpers go in `aux_tables.go`** — same pattern as InvoiceNote (the existing
   append-only clerk-action table).
-- Staging is at `cms@<staging-host>`, binaries at `/opt/staging/dispatch/bin/`
-- Cache DB at `/home/cms/.dispatch/cache.db` on staging
+- Staging is at `dispatch@<staging-host>`, binaries at `/opt/staging/dispatch/bin/`
+- Cache DB at `/home/dispatch/.dispatch/cache.db` on staging
 - HTTP Basic auth: user=`ap`, password in `/opt/staging/dispatch/env`
   (env var `DISPATCH_PASSWORD`)
 - Commit message convention: imperative present tense, bullet body, end with
@@ -119,7 +119,7 @@ Constraints (not enforced by SQLite but documented in the comment):
 **Done when**: `migrations` slice has v3 entry; on next worker startup,
 `schema_migrations` table contains row `(3, ..., <timestamp>)`. Verify with:
 ```bash
-ssh cms@<staging-host> 'sqlite3 -readonly /home/cms/.dispatch/cache.db "SELECT * FROM schema_migrations;"'
+ssh dispatch@<staging-host> 'sqlite3 -readonly /home/dispatch/.dispatch/cache.db "SELECT * FROM schema_migrations;"'
 ```
 
 ### Step 2 — Cache helpers
@@ -408,7 +408,7 @@ cd ~/projects/dispatch
 go build ./... 2>&1 | head -10
 go test ./internal/... 2>&1 | tail -10
 make staging-deploy 2>&1 | tail -3
-ssh cms@<staging-host> 'sudo systemctl restart dispatch-web'
+ssh dispatch@<staging-host> 'sudo systemctl restart dispatch-web'
 ```
 
 If `go build` fails, fix and retry. If tests fail, fix and retry. Don't
@@ -417,12 +417,12 @@ deploy a broken build.
 After deploy, verify:
 ```bash
 # Confirm v3 migration applied
-ssh cms@<staging-host> 'sqlite3 -readonly /home/cms/.dispatch/cache.db "SELECT version, description FROM schema_migrations ORDER BY version;"'
+ssh dispatch@<staging-host> 'sqlite3 -readonly /home/dispatch/.dispatch/cache.db "SELECT version, description FROM schema_migrations ORDER BY version;"'
 # Should show v1, v2, v3
 
 # Test the route — POST a 'right' verdict against any extracted message
 # Find a recent message ID:
-ssh cms@<staging-host> 'sqlite3 -readonly /home/cms/.dispatch/cache.db "SELECT id FROM messages WHERE mailbox=\"ap@example.com\" ORDER BY received_at DESC LIMIT 1;"'
+ssh dispatch@<staging-host> 'sqlite3 -readonly /home/dispatch/.dispatch/cache.db "SELECT id FROM messages WHERE mailbox=\"ap@example.com\" ORDER BY received_at DESC LIMIT 1;"'
 # Then encode it and POST (use the rowID encoding pattern from existing curl in todo.md)
 ```
 

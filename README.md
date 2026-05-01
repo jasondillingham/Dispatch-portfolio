@@ -159,7 +159,7 @@ internal/
   blobstore/            # filesystem-backed PDF + body cache
   cache/                # SQLite schema + queries
   graph/                # Graph API client (mail, attachments, categories)
-  p21/                  # MSSQL client (PO lines, voucher lookup, users)
+  erp/                  # MSSQL client (PO lines, voucher lookup, users)
   pdftext/              # poppler-based text + first-page PNG extraction
   poscan/               # PO-number heuristics (subject, body, filenames)
   recon/                # invoice-vs-PO reconciliation engine

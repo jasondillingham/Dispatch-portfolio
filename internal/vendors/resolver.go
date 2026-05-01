@@ -1,4 +1,4 @@
-// Package vendors resolves a sender email or domain to a P21 vendor.
+// Package vendors resolves a sender email or domain to a the ERP vendor.
 //
 // Matching order:
 //  1. Exact email match (from vendor_emails.json)
@@ -271,9 +271,9 @@ func (r *Resolver) Resolve(senderEmail string) Match {
 	}
 
 	// Fallback 2: match the domain's second-level label against vendor name tokens.
-	// Catches direct-from-vendor mail when our P21 data only knows their rep
+	// Catches direct-from-vendor mail when our the ERP data only knows their rep
 	// agency's email (e.g. sample-lighting.example.com → "Sample-Lighting Brand" vendor, even though
-	// P21's AP contact for them is marketing.example.com).
+	// the ERP's AP contact for them is marketing.example.com).
 	label := domainLabel(domain)
 	if label != "" && !nameTokenStopwords[label] {
 		if v, ok := r.byNameToken[label]; ok {
@@ -282,7 +282,7 @@ func (r *Resolver) Resolve(senderEmail string) Match {
 	}
 
 	// Fallback 3: brand match. Some big vendors have one corporate domain
-	// (a single corporate domain) but many P21 sub-accounts (Subsidiary A, Subsidiary
+	// (a single corporate domain) but many the ERP sub-accounts (Subsidiary A, Subsidiary
 	// Lighting, Subsidiary C — all "@vendor-a.example.com" senders). We can't guess the
 	// sub-account from sender alone, but we can confidently say the email is
 	// from "Globex." Surface that as the brand so the row reads "Vendor: Globex"
@@ -306,7 +306,7 @@ func (r *Resolver) Resolve(senderEmail string) Match {
 
 // brandMatch returns a synthesized brand vendor if the domain is ambiguous AND
 // its label appears as a whole word in at least one candidate's name. The
-// returned Vendor has VendorID="" — downstream code that needs a specific P21
+// returned Vendor has VendorID="" — downstream code that needs a specific ERP
 // vendor (voucher lookup, PO match) should treat MatchBrand as "vendor known,
 // sub-account unknown" and rely on the PO override or manual entry to
 // disambiguate.
